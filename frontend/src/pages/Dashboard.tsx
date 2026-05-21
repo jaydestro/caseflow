@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { useTenant } from '../TenantContext';
 import { Agent, Customer, SupportCase, WorkloadRow } from '../types';
@@ -180,7 +180,11 @@ export function Dashboard() {
             ) : (
               workload.map((w) => (
                 <div key={w.agentId} className="workload-row">
-                  <span>{w.agentName}</span>
+                  {w.agentId ? (
+                    <Link to={`/agents/${w.agentId}`}>{w.agentName}</Link>
+                  ) : (
+                    <span>{w.agentName}</span>
+                  )}
                   <span className="count">{w.openCount}</span>
                 </div>
               ))
