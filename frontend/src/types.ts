@@ -71,6 +71,9 @@ export interface QuerySample {
   requestCharge: number | null;
   crossPartition: boolean;
   notes?: string;
+  source?: 'user' | 'background';
+  /** Azure Portal Logs blade deep link, ±30s around `at`. */
+  portalLink?: string;
 }
 
 export interface DiagnosticsResponse {
@@ -81,6 +84,89 @@ export interface DiagnosticsResponse {
     maxRu: number;
     avgDurationMs: number;
     crossPartitionCount: number;
+    userRu: number;
+    backgroundRu: number;
+    userCount: number;
+    backgroundCount: number;
   };
   samples: QuerySample[];
+  containerRUs: number;
+  portalEnabled?: boolean;
+}
+
+export interface OpAggregate {
+  op: string;
+  count: number;
+  totalRu: number;
+  avgRu: number;
+  maxRu: number;
+  avgDurationMs?: number;
+  p95DurationMs?: number;
+  /** Pre-built Logs blade URL — KQL filtered to this op + window. */
+  portalLink?: string;
+}
+
+export interface AzureCompareResponse {
+  enabled: boolean;
+  windowMinutes: number;
+  local: { count: number; totalRu: number; avgRu: number; maxRu: number; byOp: OpAggregate[] };
+  azure: {
+    count: number;
+    totalRu: number;
+    avgRu: number;
+    maxRu: number;
+    latestRecordAt: string | null;
+    byOp: OpAggregate[];
+  } | null;
+  lagSeconds?: number | null;
+  workspaceId?: string;
+  cosmosAccount?: string;
+  portalLinks?: {
+    workspace: string;
+    metrics: string;
+    metricsChart: string;
+    insights: string;
+    ruTimechart: string;
+    opBreakdown: string;
+  };
+  note: string;
+}
+
+export interface DeltaField {
+  before: number;
+  after: number;
+  change: number;
+  pct: number | null;
+}
+
+export interface TelemetrySnapshot {
+  label: string;
+  takenAt: string;
+  sampleCount: number;
+  summary: {
+    count: number;
+    totalRu: number;
+    avgRu: number;
+    maxRu: number;
+    avgDurationMs: number;
+    crossPartitionCount: number;
+    userRu: number;
+    backgroundRu: number;
+    userCount: number;
+    backgroundCount: number;
+  };
+  byOp: Array<{ op: string; count: number; totalRu: number; avgRu: number; maxRu: number; avgDurationMs: number }>;
+}
+
+export interface BeforeAfterComparison {
+  before: TelemetrySnapshot;
+  after: TelemetrySnapshot;
+  delta: {
+    totalRu: DeltaField;
+    avgRu: DeltaField;
+    maxRu: DeltaField;
+    avgDurationMs: DeltaField;
+    crossPartitionCount: DeltaField;
+    count: DeltaField;
+  };
 }

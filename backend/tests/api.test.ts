@@ -1,33 +1,27 @@
-process.env.USE_IN_MEMORY_STORE = 'true';
-
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
+import type { Express } from 'express';
 
-beforeAll(() => {
-  process.env.USE_IN_MEMORY_STORE = 'true';
-});
+let app: Express;
 
-async function freshApp() {
-  // Reset state for a clean import each test run.
+beforeAll(async () => {
   const dataMod = await import('../src/data');
   dataMod._resetForTests();
   const { createApp } = await import('../src/app');
   const repos = await dataMod.getRepositories();
-  const { runSeed } = await import('../src/scripts/seed');
-  await runSeed(repos);
-  return createApp();
-}
+  const { runSeedIfEmpty } = await import('../src/scripts/seed');
+  await runSeedIfEmpty(repos);
+  app = createApp();
+});
 
 describe('CaseFlow API', () => {
   it('GET /api/health returns ok', async () => {
-    const app = await freshApp();
     const res = await request(app).get('/api/health');
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ status: 'ok' });
   });
 
   it('lists tenants and cases for a tenant', async () => {
-    const app = await freshApp();
     const tenants = await request(app).get('/api/tenants');
     expect(tenants.status).toBe(200);
     expect(tenants.body.length).toBeGreaterThan(0);
@@ -39,7 +33,6 @@ describe('CaseFlow API', () => {
   });
 
   it('filters cases by status', async () => {
-    const app = await freshApp();
     const tenants = await request(app).get('/api/tenants');
     const tenantId = tenants.body[0].id;
     const open = await request(app).get(`/api/cases?tenantId=${tenantId}&status=open`);
@@ -48,7 +41,6 @@ describe('CaseFlow API', () => {
   });
 
   it('create → comment → status workflow', async () => {
-    const app = await freshApp();
     const tenants = await request(app).get('/api/tenants');
     const tenantId = tenants.body[0].id;
     const customers = await request(app).get(`/api/customers?tenantId=${tenantId}`);
@@ -83,7 +75,6 @@ describe('CaseFlow API', () => {
   });
 
   it('returns 404 for unknown case', async () => {
-    const app = await freshApp();
     const tenants = await request(app).get('/api/tenants');
     const tenantId = tenants.body[0].id;
     const res = await request(app).get(`/api/cases/does-not-exist?tenantId=${tenantId}`);
@@ -91,7 +82,6 @@ describe('CaseFlow API', () => {
   });
 
   it('agent workload returns rows', async () => {
-    const app = await freshApp();
     const tenants = await request(app).get('/api/tenants');
     const tenantId = tenants.body[0].id;
     const res = await request(app).get(`/api/cases/_/agent-workload?tenantId=${tenantId}`);
@@ -101,7 +91,6 @@ describe('CaseFlow API', () => {
   });
 
   it('records telemetry samples for queries', async () => {
-    const app = await freshApp();
     await request(app).post('/api/_diagnostics/clear');
     const tenants = await request(app).get('/api/tenants');
     const tenantId = tenants.body[0].id;

@@ -10,7 +10,6 @@ import {
   Tenant,
 } from '../models/entities';
 import { EntityStore, SqlQuerySpec } from './store';
-import { InMemoryEntityStore, InMemoryQuerySpec } from './memoryStore';
 
 export interface ListCasesOptions {
   tenantId: string;
@@ -24,33 +23,11 @@ export interface ListCasesOptions {
 export class Repositories {
   constructor(private store: EntityStore) {}
 
-  private isInMemory(): this is { store: InMemoryEntityStore } {
-    return this.store instanceof InMemoryEntityStore;
-  }
-
-  private buildSpec(
-    sql: SqlQuerySpec,
-    predicate: (d: AnyEntity) => boolean,
-    sort?: (a: AnyEntity, b: AnyEntity) => number,
-    limit?: number,
-  ): SqlQuerySpec {
-    if (this.isInMemory()) {
-      const ext: InMemoryQuerySpec = { ...sql, predicate, sort, limit };
-      return ext;
-    }
-    return sql;
-  }
-
   async listTenants(): Promise<Tenant[]> {
-    const spec = this.buildSpec(
-      {
-        query: 'SELECT * FROM c WHERE c.type = @t',
-        parameters: [{ name: '@t', value: 'tenant' }],
-      },
-      (d) => d.type === 'tenant',
-      (a, b) => (a as Tenant).name.localeCompare((b as Tenant).name),
-    );
-    return this.store.query<Tenant>(spec);
+    return this.store.query<Tenant>({
+      query: 'SELECT * FROM c WHERE c.type = @t',
+      parameters: [{ name: '@t', value: 'tenant' }],
+    });
   }
 
   async getTenant(id: string): Promise<Tenant | undefined> {
@@ -59,33 +36,23 @@ export class Repositories {
   }
 
   async listAgents(tenantId: string): Promise<Agent[]> {
-    const spec = this.buildSpec(
-      {
-        query: 'SELECT * FROM c WHERE c.type = @t AND c.tenantId = @tid',
-        parameters: [
-          { name: '@t', value: 'agent' },
-          { name: '@tid', value: tenantId },
-        ],
-      },
-      (d) => d.type === 'agent' && d.tenantId === tenantId,
-      (a, b) => (a as Agent).name.localeCompare((b as Agent).name),
-    );
-    return this.store.query<Agent>(spec);
+    return this.store.query<Agent>({
+      query: 'SELECT * FROM c WHERE c.type = @t AND c.tenantId = @tid',
+      parameters: [
+        { name: '@t', value: 'agent' },
+        { name: '@tid', value: tenantId },
+      ],
+    });
   }
 
   async listCustomers(tenantId: string): Promise<Customer[]> {
-    const spec = this.buildSpec(
-      {
-        query: 'SELECT * FROM c WHERE c.type = @t AND c.tenantId = @tid',
-        parameters: [
-          { name: '@t', value: 'customer' },
-          { name: '@tid', value: tenantId },
-        ],
-      },
-      (d) => d.type === 'customer' && d.tenantId === tenantId,
-      (a, b) => (a as Customer).name.localeCompare((b as Customer).name),
-    );
-    return this.store.query<Customer>(spec);
+    return this.store.query<Customer>({
+      query: 'SELECT * FROM c WHERE c.type = @t AND c.tenantId = @tid',
+      parameters: [
+        { name: '@t', value: 'customer' },
+        { name: '@tid', value: tenantId },
+      ],
+    });
   }
 
   async listCases(opts: ListCasesOptions): Promise<SupportCase[]> {
@@ -110,22 +77,8 @@ export class Repositories {
       where += ' AND c.customerId = @cid';
       params.push({ name: '@cid', value: opts.customerId });
     }
-    const sql = `SELECT * FROM c WHERE ${where} ORDER BY c.updatedAt DESC`;
-    const spec = this.buildSpec(
-      { query: sql, parameters: params },
-      (d) => {
-        if (d.type !== 'case' || d.tenantId !== opts.tenantId) return false;
-        const c = d as SupportCase;
-        if (opts.status?.length && !opts.status.includes(c.status)) return false;
-        if (opts.priority?.length && !opts.priority.includes(c.priority)) return false;
-        if (opts.agentId && c.assignedAgentId !== opts.agentId) return false;
-        if (opts.customerId && c.customerId !== opts.customerId) return false;
-        return true;
-      },
-      (a, b) => ((b as SupportCase).updatedAt).localeCompare((a as SupportCase).updatedAt),
-      opts.limit,
-    );
-    return this.store.query<SupportCase>(spec);
+    const sql = `SELECT * FROM c WHERE ${where}`;
+    return this.store.query<SupportCase>({ query: sql, parameters: params });
   }
 
   async getCase(id: string): Promise<SupportCase | undefined> {
@@ -138,35 +91,25 @@ export class Repositories {
   }
 
   async listCommentsForCase(caseId: string): Promise<CaseComment[]> {
-    const spec = this.buildSpec(
-      {
-        query:
-          'SELECT * FROM c WHERE c.type = @t AND c.caseId = @cid ORDER BY c.createdAt ASC',
-        parameters: [
-          { name: '@t', value: 'comment' },
-          { name: '@cid', value: caseId },
-        ],
-      },
-      (d) => d.type === 'comment' && (d as CaseComment).caseId === caseId,
-      (a, b) => (a as CaseComment).createdAt.localeCompare((b as CaseComment).createdAt),
-    );
-    return this.store.query<CaseComment>(spec);
+    return this.store.query<CaseComment>({
+      query:
+        'SELECT * FROM c WHERE c.type = @t AND c.caseId = @cid',
+      parameters: [
+        { name: '@t', value: 'comment' },
+        { name: '@cid', value: caseId },
+      ],
+    });
   }
 
   async listStatusEventsForCase(caseId: string): Promise<StatusEvent[]> {
-    const spec = this.buildSpec(
-      {
-        query:
-          'SELECT * FROM c WHERE c.type = @t AND c.caseId = @cid ORDER BY c.createdAt ASC',
-        parameters: [
-          { name: '@t', value: 'statusEvent' },
-          { name: '@cid', value: caseId },
-        ],
-      },
-      (d) => d.type === 'statusEvent' && (d as StatusEvent).caseId === caseId,
-      (a, b) => (a as StatusEvent).createdAt.localeCompare((b as StatusEvent).createdAt),
-    );
-    return this.store.query<StatusEvent>(spec);
+    return this.store.query<StatusEvent>({
+      query:
+        'SELECT * FROM c WHERE c.type = @t AND c.caseId = @cid',
+      parameters: [
+        { name: '@t', value: 'statusEvent' },
+        { name: '@cid', value: caseId },
+      ],
+    });
   }
 
   async upsertComment(c: CaseComment): Promise<CaseComment> {

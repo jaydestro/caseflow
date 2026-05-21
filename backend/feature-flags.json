@@ -1,0 +1,6 @@
+{
+  "enableAgentWorkload": true,
+  "enableDiagnosticsRoute": true,
+  "enableCacheWarmer": true,
+  "maxListLimit": 200
+}

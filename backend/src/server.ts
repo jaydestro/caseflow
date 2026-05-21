@@ -10,7 +10,7 @@ async function main() {
   const app = createApp();
   app.listen(config.port, () => {
     logger.info(
-      { port: config.port, store: config.useInMemoryStore ? 'memory' : 'cosmos' },
+      { port: config.port },
       'CaseFlow API listening',
     );
   });

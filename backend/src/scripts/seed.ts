@@ -439,7 +439,7 @@ export async function runSeed(repos: Repositories): Promise<void> {
     // thousands of docs that every cross-partition query has to scan.
     // Northwind and Contoso are "growing" tenants; Fabrikam is smaller.
     const bulkCount =
-      t.id === 'tenant-contoso' ? 900 : t.id === 'tenant-northwind' ? 600 : 200;
+      t.id === 'tenant-contoso' ? 300 : t.id === 'tenant-northwind' ? 200 : 100;
     for (let i = 0; i < bulkCount; i++) {
       const opened = daysAgo(7 + (i % 170));
       const closed = new Date(opened.getTime() + (2 + (i % 20)) * 3_600_000);
@@ -483,7 +483,30 @@ export async function runSeed(repos: Repositories): Promise<void> {
         createdAt: ts(closed),
         updatedAt: ts(closed),
       });
-      total += 1;
+      total++;
+
+      // Add comments to bulk cases so the container has realistic volume
+      // and getCaseDetail's N+1 enrichment loop is visible.
+      const commentBodies = [
+        'Investigated and confirmed this is a known issue.',
+        'Applied the recommended workaround from the knowledge base.',
+        'Customer confirmed the fix. Closing.',
+      ];
+      for (let j = 0; j < commentBodies.length; j++) {
+        const at = new Date(opened.getTime() + (j + 1) * 3_600_000);
+        await repos.upsertComment({
+          id: uuid(),
+          type: 'comment',
+          tenantId: t.id,
+          caseId: id,
+          authorId: j % 2 === 0 ? agent.id : customer.id,
+          authorKind: j % 2 === 0 ? 'agent' : 'customer',
+          body: commentBodies[j],
+          createdAt: ts(at),
+          updatedAt: ts(at),
+        });
+        total++;
+      }
     }
   }
 

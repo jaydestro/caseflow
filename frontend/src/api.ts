@@ -1,10 +1,13 @@
 import {
   Agent,
+  AzureCompareResponse,
+  BeforeAfterComparison,
   CaseComment,
   Customer,
   DiagnosticsResponse,
   StatusEvent,
   SupportCase,
+  TelemetrySnapshot,
   Tenant,
   WorkloadRow,
 } from './types';
@@ -87,4 +90,17 @@ export const api = {
   diagnostics: () => http<DiagnosticsResponse>('/api/_diagnostics/queries'),
   clearDiagnostics: () =>
     http<{ ok: boolean }>('/api/_diagnostics/clear', { method: 'POST' }),
+  azureCompare: (windowMinutes = 15) =>
+    http<AzureCompareResponse>(`/api/_diagnostics/azure-compare${qs({ windowMinutes: String(windowMinutes) })}`),
+
+  takeSnapshot: (label?: string) =>
+    http<TelemetrySnapshot>('/api/_diagnostics/snapshot', {
+      method: 'POST',
+      body: JSON.stringify({ label }),
+    }),
+  getSnapshot: () => http<TelemetrySnapshot | null>('/api/_diagnostics/snapshot'),
+  clearSnapshot: () =>
+    http<{ ok: boolean }>('/api/_diagnostics/snapshot', { method: 'DELETE' }),
+  compareSnapshot: () =>
+    http<BeforeAfterComparison | null>('/api/_diagnostics/snapshot/compare'),
 };

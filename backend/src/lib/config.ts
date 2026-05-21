@@ -3,20 +3,27 @@ import * as path from 'path';
 
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
-function bool(v: string | undefined, def: boolean): boolean {
-  if (v === undefined) return def;
-  return /^(1|true|yes|on)$/i.test(v);
-}
-
 export const config = {
   port: Number(process.env.PORT ?? 4000),
-  useInMemoryStore: bool(process.env.USE_IN_MEMORY_STORE, true),
   cosmos: {
     endpoint: process.env.COSMOS_ENDPOINT ?? '',
     key: process.env.COSMOS_KEY ?? '',
     connectionString: process.env.COSMOS_CONNECTION_STRING ?? '',
     database: process.env.COSMOS_DATABASE ?? 'caseflow',
     container: process.env.COSMOS_CONTAINER ?? 'entities',
+    /** When true, use DefaultAzureCredential (Entra ID RBAC) instead of key auth */
+    useEntra: process.env.COSMOS_USE_ENTRA === 'true',
+  },
+  /** Provisioned RU/s on the container — used by diagnostics to show budget utilisation */
+  containerRUs: Number(process.env.CONTAINER_RUS ?? 10000),
+  azure: {
+    tenantId: process.env.AZURE_TENANT_ID ?? '',
+    subscriptionId: process.env.AZURE_SUBSCRIPTION_ID ?? '',
+    resourceGroup: process.env.AZURE_RESOURCE_GROUP ?? '',
+    cosmosAccount: process.env.COSMOS_ACCOUNT_NAME ?? '',
+    /** Log Analytics workspace GUID (customerId), not the ARM resource id */
+    logAnalyticsWorkspaceId: process.env.LOG_ANALYTICS_WORKSPACE_ID ?? '',
+    logAnalyticsWorkspaceName: process.env.LOG_ANALYTICS_WORKSPACE_NAME ?? '',
   },
 };
 

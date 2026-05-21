@@ -1,21 +1,53 @@
 import { Container, CosmosClient } from '@azure/cosmos';
+import { DefaultAzureCredential } from '@azure/identity';
+import * as fs from 'fs';
+import * as path from 'path';
 import { config } from '../lib/config';
 import { logger } from '../lib/logger';
 import { telemetry } from '../lib/telemetry';
 import { AnyEntity } from '../models/entities';
 import { EntityStore, SqlQuerySpec } from './store';
 
+// Well-known Cosmos DB Emulator key. Safe to commit because the emulator only
+// accepts this key by design — it's documented on learn.microsoft.com.
+// We fall back to it so local dev "just works" even if .env is missing.
+const EMULATOR_KEY =
+  'C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==';
+
 export class CosmosEntityStore implements EntityStore {
   private client: CosmosClient;
   private container!: Container;
 
   constructor() {
-    if (config.cosmos.connectionString) {
-      this.client = new CosmosClient(config.cosmos.connectionString);
-    } else {
+    // Read the package version off disk so the User-Agent string shows up
+    // nicely in Cosmos diagnostics. Done once at construction, so the cost is
+    // paid up front and never again.
+    const pkgPath = path.resolve(__dirname, '../../package.json');
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8')) as { version: string };
+
+    if (config.cosmos.useEntra) {
+      // Entra ID RBAC auth — uses DefaultAzureCredential which chains through
+      // managed identity, az CLI, VS Code, etc. The identity must be assigned
+      // the Cosmos DB Built-in Data Contributor role on the account.
+      const credential = new DefaultAzureCredential();
       this.client = new CosmosClient({
         endpoint: config.cosmos.endpoint,
-        key: config.cosmos.key,
+        aadCredentials: credential,
+        userAgentSuffix: `caseflow/${pkg.version}`,
+        consistencyLevel: 'Session',
+        connectionPolicy: { requestTimeout: 60000 },
+      });
+      logger.info('Cosmos client using Entra ID (DefaultAzureCredential)');
+    } else if (config.cosmos.connectionString) {
+      this.client = new CosmosClient(config.cosmos.connectionString);
+    } else {
+      const key = config.cosmos.key || EMULATOR_KEY;
+      this.client = new CosmosClient({
+        endpoint: config.cosmos.endpoint,
+        key,
+        userAgentSuffix: `caseflow/${pkg.version}`,
+        consistencyLevel: 'Session',
+        connectionPolicy: { requestTimeout: 60000 },
       });
     }
   }
