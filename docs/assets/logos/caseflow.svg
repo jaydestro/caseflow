@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 80" role="img" aria-label="CaseFlow">
+  <!-- mark: stacked case files with flow arrow -->
+  <g transform="translate(20 18)">
+    <rect x="0" y="8" width="36" height="36" rx="4" fill="#8ee2fc"/>
+    <rect x="6" y="2" width="36" height="36" rx="4" fill="#3b75cf"/>
+    <path d="M16,20 H30 M16,26 H26" stroke="#f9f9f9" stroke-width="2.5" stroke-linecap="round"/>
+    <path d="M48,20 H62 M58,15 L63,20 L58,25" stroke="#07101E" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <!-- wordmark -->
+  <g font-family="'Segoe UI', 'Inter', system-ui, sans-serif" fill="#07101E">
+    <text x="100" y="48" font-size="30" font-weight="700" letter-spacing="-0.5">Case<tspan fill="#3b75cf">Flow</tspan></text>
+  </g>
+</svg>

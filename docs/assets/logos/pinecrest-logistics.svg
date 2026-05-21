@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 60" role="img" aria-label="Pinecrest Logistics">
+  <g transform="translate(20 30)">
+    <path d="M0,-16 L12,8 L-12,8 Z" fill="#3b75cf"/>
+    <path d="M0,-6 L8,12 L-8,12 Z" fill="#8ee2fc"/>
+    <rect x="-2" y="10" width="4" height="6" fill="#07101E"/>
+  </g>
+  <text x="46" y="38" font-family="'Segoe UI', system-ui, sans-serif" font-size="20" font-weight="600" fill="#07101E">Pinecrest<tspan font-weight="400" fill="#3b75cf"> Logistics</tspan></text>
+</svg>

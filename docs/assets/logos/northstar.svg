@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 80" role="img" aria-label="Northstar Helpdesk">
+  <defs>
+    <linearGradient id="ns-g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3b75cf"/>
+      <stop offset="1" stop-color="#8ee2fc"/>
+    </linearGradient>
+  </defs>
+  <!-- mark: 4-point star -->
+  <g transform="translate(40 40)">
+    <path d="M0,-28 L7,-7 L28,0 L7,7 L0,28 L-7,7 L-28,0 L-7,-7 Z" fill="url(#ns-g)"/>
+    <circle r="4" fill="#07101E"/>
+  </g>
+  <!-- wordmark -->
+  <g font-family="'Segoe UI', 'Inter', system-ui, sans-serif" fill="#07101E">
+    <text x="86" y="42" font-size="26" font-weight="700" letter-spacing="-0.5">Northstar</text>
+    <text x="86" y="62" font-size="13" font-weight="500" fill="#3b75cf" letter-spacing="2">HELPDESK</text>
+  </g>
+</svg>

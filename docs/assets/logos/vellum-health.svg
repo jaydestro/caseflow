@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 60" role="img" aria-label="Vellum Health">
+  <g transform="translate(20 30)">
+    <path d="M-12,-10 Q-12,-16 -6,-16 Q0,-16 0,-10 Q0,-16 6,-16 Q12,-16 12,-10 Q12,0 0,12 Q-12,0 -12,-10 Z" fill="#3b75cf"/>
+    <path d="M-6,-4 H6 M0,-10 V2" stroke="#f9f9f9" stroke-width="2.5" stroke-linecap="round"/>
+  </g>
+  <text x="46" y="38" font-family="'Segoe UI', system-ui, sans-serif" font-size="22" font-weight="600" fill="#07101E">Vellum<tspan font-weight="400" fill="#3b75cf"> Health</tspan></text>
+</svg>

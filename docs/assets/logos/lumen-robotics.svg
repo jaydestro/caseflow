@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 60" role="img" aria-label="Lumen Robotics">
+  <g transform="translate(18 30)">
+    <circle r="14" fill="none" stroke="#3b75cf" stroke-width="3"/>
+    <circle r="5" fill="#3b75cf"/>
+  </g>
+  <text x="46" y="38" font-family="'Segoe UI', system-ui, sans-serif" font-size="22" font-weight="600" fill="#07101E">Lumen<tspan font-weight="400" fill="#3b75cf"> Robotics</tspan></text>
+</svg>
