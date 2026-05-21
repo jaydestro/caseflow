@@ -168,10 +168,8 @@ export function Diagnostics() {
           </div>
 
           <p style={{ color: '#6b7280', fontSize: 13, margin: '0 0 12px' }}>
-            The single <code>entities</code> container is partitioned on <code>/id</code>, so any query
-            without a <code>c.id =</code> filter fans out across every logical partition. The
-            <strong> % budget</strong> column shows what fraction of your {containerRUs.toLocaleString()} RU/s
-            each operation consumes — the higher it is, the fewer concurrent calls your throughput can sustain.
+            Each row shows the RU charge for one Cosmos operation, and what fraction of the
+            container's provisioned throughput it consumed.
           </p>
 
           {filtered.length === 0 ? (
