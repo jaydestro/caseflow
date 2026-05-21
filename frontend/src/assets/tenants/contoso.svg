@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Contoso Ltd.">
+  <rect width="32" height="32" rx="6" fill="#07101E"/>
+  <!-- stylized C -->
+  <path d="M22 10.5 A8 8 0 1 0 22 21.5" stroke="#8ee2fc" stroke-width="3.2" fill="none" stroke-linecap="round"/>
+  <circle cx="22" cy="16" r="2" fill="#3b75cf"/>
+</svg>

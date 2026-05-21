@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Northwind Traders">
+  <rect width="32" height="32" rx="6" fill="#3b75cf"/>
+  <!-- compass rose -->
+  <g transform="translate(16 16)" fill="#f9f9f9">
+    <path d="M0,-10 L2.4,-2.4 L10,0 L2.4,2.4 L0,10 L-2.4,2.4 L-10,0 L-2.4,-2.4 Z"/>
+    <circle r="1.6" fill="#8ee2fc"/>
+  </g>
+</svg>

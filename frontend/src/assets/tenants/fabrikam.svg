@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Fabrikam Inc.">
+  <rect width="32" height="32" rx="6" fill="#8ee2fc"/>
+  <!-- factory roofline -->
+  <g fill="#07101E">
+    <path d="M6 22 V14 L11 17 V14 L16 17 V14 L21 17 V14 L26 17 V22 Z"/>
+    <rect x="14" y="19" width="2.5" height="3" fill="#3b75cf"/>
+  </g>
+</svg>

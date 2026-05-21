@@ -4,6 +4,7 @@ import { api } from '../api';
 import { useTenant } from '../TenantContext';
 import { Agent, Customer, SupportCase, WorkloadRow } from '../types';
 import { PriorityBadge, StatusBadge, formatDate } from '../ui';
+import { TenantLogo } from '../tenantLogos';
 
 export function Dashboard() {
   const { current } = useTenant();
@@ -61,6 +62,26 @@ export function Dashboard() {
   return (
     <div className="detail-grid">
       <div>
+        <div
+          className="card"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            padding: '10px 14px',
+            marginBottom: 12,
+          }}
+        >
+          <TenantLogo tenantId={current?.id} size={40} alt={current?.name} />
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            <strong style={{ fontSize: 16 }}>{current?.name ?? 'No tenant'}</strong>
+            {current?.plan && (
+              <span style={{ fontSize: 12, color: '#6b7280', textTransform: 'capitalize' }}>
+                {current.plan} plan
+              </span>
+            )}
+          </div>
+        </div>
         <div className="card">
           <div className="card-header">
             <span>Cases</span>

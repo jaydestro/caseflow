@@ -4,18 +4,22 @@ import { Dashboard } from './pages/Dashboard';
 import { CaseDetail } from './pages/CaseDetail';
 import { NewCase } from './pages/NewCase';
 import { Diagnostics } from './pages/Diagnostics';
+import { TenantLogo } from './tenantLogos';
 
 function TenantSwitcher() {
   const { tenants, current, setCurrentId, loading } = useTenant();
   if (loading) return <span style={{ color: '#9ca3af', fontSize: 13 }}>loading…</span>;
   return (
-    <select value={current?.id ?? ''} onChange={(e) => setCurrentId(e.target.value)}>
-      {tenants.map((t) => (
-        <option key={t.id} value={t.id}>
-          {t.name}
-        </option>
-      ))}
-    </select>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+      <TenantLogo tenantId={current?.id} size={22} alt={current?.name} />
+      <select value={current?.id ?? ''} onChange={(e) => setCurrentId(e.target.value)}>
+        {tenants.map((t) => (
+          <option key={t.id} value={t.id}>
+            {t.name}
+          </option>
+        ))}
+      </select>
+    </span>
   );
 }
 
