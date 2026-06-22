@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+﻿import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import type { Express } from 'express';
 
@@ -40,7 +40,7 @@ describe('CaseFlow API', () => {
     for (const c of open.body.items) expect(c.status).toBe('open');
   });
 
-  it('create → comment → status workflow', async () => {
+  it('create â†’ comment â†’ status workflow', async () => {
     const tenants = await request(app).get('/api/tenants');
     const tenantId = tenants.body[0].id;
     const customers = await request(app).get(`/api/customers?tenantId=${tenantId}`);
@@ -101,6 +101,42 @@ describe('CaseFlow API', () => {
     expect(diag.body.samples.length).toBeGreaterThan(0);
     // The list-cases query should be flagged as cross-partition.
     expect(diag.body.samples.some((s: any) => s.crossPartition)).toBe(true);
+  });
+
+  // End-to-end for the Agent Workload page: a newly assigned case must show up
+  // in the agent's in-progress list and bump their workload count - exactly the
+  // data the /agents/:id page derives client-side (listAgents + listCases).
+  it('agent workload page flow: assigned case appears for that agent', async () => {
+    const tenants = await request(app).get('/api/tenants');
+    const tenantId = tenants.body[0].id;
+    const agents = await request(app).get(`/api/agents?tenantId=${tenantId}`);
+    const customers = await request(app).get(`/api/customers?tenantId=${tenantId}`);
+    const agentId = agents.body[0].id;
+
+    const before = await request(app).get(`/api/cases/_/agent-workload?tenantId=${tenantId}`);
+    const beforeCount = before.body.find((r: any) => r.agentId === agentId)?.openCount ?? 0;
+
+    const created = await request(app).post('/api/cases').send({
+      tenantId,
+      customerId: customers.body[0].id,
+      assignedAgentId: agentId,
+      subject: 'Workload page e2e',
+      description: 'should land in the agent workload page',
+      priority: 'high',
+    });
+    expect(created.status).toBe(201);
+
+    // Mirror what AgentWorkload.tsx does: list cases, filter to this agent's in-progress work.
+    const all = await request(app).get(`/api/cases?tenantId=${tenantId}`);
+    const inProgressForAgent = all.body.items.filter(
+      (c: any) => c.assignedAgentId === agentId && (c.status === 'open' || c.status === 'pending'),
+    );
+    expect(inProgressForAgent.some((c: any) => c.id === created.body.id)).toBe(true);
+
+    const after = await request(app).get(`/api/cases/_/agent-workload?tenantId=${tenantId}`);
+    const afterRow = after.body.find((r: any) => r.agentId === agentId);
+    expect(afterRow).toBeTruthy();
+    expect(afterRow.openCount).toBeGreaterThanOrEqual(beforeCount + 1);
   });
 });
 

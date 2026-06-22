@@ -4,6 +4,7 @@ import { Dashboard } from './pages/Dashboard';
 import { CaseDetail } from './pages/CaseDetail';
 import { NewCase } from './pages/NewCase';
 import { Diagnostics } from './pages/Diagnostics';
+import { AgentWorkload } from './pages/AgentWorkload';
 import { TenantLogo } from './tenantLogos';
 
 function TenantSwitcher() {
@@ -47,6 +48,7 @@ function Shell() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/cases/:id" element={<CaseDetail />} />
             <Route path="/new" element={<NewCase />} />
+            <Route path="/agents/:id" element={<AgentWorkload />} />
             <Route path="/diagnostics" element={<Diagnostics />} />
             <Route path="*" element={<div className="empty">Not found</div>} />
           </Routes>
