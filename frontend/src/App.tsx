@@ -23,11 +23,15 @@ function UserMenu() {
 
 function TenantSwitcher() {
   const { tenants, current, setCurrentId, loading } = useTenant();
-  if (loading) return <span style={{ color: '#9ca3af', fontSize: 13 }}>loading…</span>;
+  if (loading) return <span className="tenant-loading">loading…</span>;
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+    <span className="tenant-switcher">
       <TenantLogo tenantId={current?.id} size={22} alt={current?.name} />
-      <select value={current?.id ?? ''} onChange={(e) => setCurrentId(e.target.value)}>
+      <select
+        aria-label="Select tenant"
+        value={current?.id ?? ''}
+        onChange={(e) => setCurrentId(e.target.value)}
+      >
         {tenants.map((t) => (
           <option key={t.id} value={t.id}>
             {t.name}
