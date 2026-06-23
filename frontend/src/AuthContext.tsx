@@ -22,16 +22,40 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
+function safeGetItem(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function safeSetItem(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // localStorage unavailable (e.g. privacy mode) — non-fatal for demo auth
+  }
+}
+
+function safeRemoveItem(key: string) {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    // non-fatal
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [username, setUsername] = useState<string | null>(() => localStorage.getItem(USER_KEY));
+  const [username, setUsername] = useState<string | null>(() => safeGetItem(USER_KEY));
   const [authed, setAuthed] = useState<boolean>(
-    () => localStorage.getItem(AUTH_KEY) === 'true' && localStorage.getItem(USER_KEY) !== null,
+    () => safeGetItem(AUTH_KEY) === 'true' && safeGetItem(USER_KEY) !== null,
   );
 
   const login = (user: string, password: string) => {
     if (user === DEMO_USERNAME && password === DEMO_PASSWORD) {
-      localStorage.setItem(AUTH_KEY, 'true');
-      localStorage.setItem(USER_KEY, user);
+      safeSetItem(AUTH_KEY, 'true');
+      safeSetItem(USER_KEY, user);
       setAuthed(true);
       setUsername(user);
       return true;
@@ -40,8 +64,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = () => {
-    localStorage.removeItem(AUTH_KEY);
-    localStorage.removeItem(USER_KEY);
+    safeRemoveItem(AUTH_KEY);
+    safeRemoveItem(USER_KEY);
     setAuthed(false);
     setUsername(null);
   };
