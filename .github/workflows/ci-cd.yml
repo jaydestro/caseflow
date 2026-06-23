@@ -13,11 +13,14 @@ name: CI/CD
 #   AZURE_SUBSCRIPTION_ID  - <your-subscription-id>
 #   AZURE_ENV_NAME         - caseflow
 #   AZURE_LOCATION         - eastus2
+#
+# Trigger on `push` only. A `push` to any branch already covers feature-branch
+# CI, and a `push` to main (a PR merge) drives the deploy. Adding a
+# `pull_request` trigger would double-run test + security on every commit that
+# belongs to an open PR (same SHA, two events), so it is intentionally omitted.
 on:
   push:
     branches: ['**']
-  pull_request:
-    branches: [main]
 
 # Cancel superseded runs on the same ref (e.g. fast successive pushes).
 concurrency:
@@ -29,7 +32,7 @@ permissions:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # TEST — runs on every branch push and every PR.
+  # TEST — runs on every branch push.
   # Spins up the Cosmos DB vNext emulator and runs the backend test suite
   # against it (the data layer has no in-memory fallback).
   # ---------------------------------------------------------------------------
@@ -90,7 +93,7 @@ jobs:
         run: docker logs cosmos-emulator || true
 
   # ---------------------------------------------------------------------------
-  # SECURITY — dependency + static analysis on every branch push and PR.
+  # SECURITY — dependency + static analysis on every branch push.
   # Fails on known high/critical vulnerabilities in runtime dependencies and
   # runs CodeQL static analysis over the TypeScript sources.
   # ---------------------------------------------------------------------------

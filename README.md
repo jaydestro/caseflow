@@ -166,10 +166,15 @@ and (on merges to `main`) deploys CaseFlow to Azure using the
 
 ### What runs, and when
 
+The workflow triggers on **`push` only** (`branches: ['**']`). A push to any
+branch runs CI; a push to `main` (a PR merge) also deploys. There is
+deliberately **no `pull_request` trigger** — for a commit on a branch with an
+open PR it would fire a second time on the same SHA, double-running `test` and
+`security`.
+
 | Trigger | `test` | `security` | `deploy` |
 | ------- | :----: | :--------: | :------: |
 | Push to any feature branch | ✅ | ✅ | — |
-| Pull request to `main` | ✅ | ✅ | — |
 | Push to `main` (a PR merge) | ✅ | ✅ | ✅ |
 
 - **`test`** — installs dependencies, starts the **Cosmos DB vNext-preview
