@@ -67,7 +67,7 @@ echo ""
 
 # ---- select / create the azd environment ----
 echo "==> Selecting azd environment '$ENV_NAME'..."
-if azd env list --output json 2>/dev/null | grep -q "\"Name\": *\"$ENV_NAME\""; then
+if azd env list --output json 2>/dev/null | grep -q "\"name\"[[:space:]]*:[[:space:]]*\"$ENV_NAME\""; then
   azd env select "$ENV_NAME"
 else
   azd env new "$ENV_NAME" --location "$LOCATION" >/dev/null
