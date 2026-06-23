@@ -183,6 +183,33 @@ and (on merges to `main`) deploys CaseFlow to Azure using the
   `azd deploy`, and finishes with a smoke test that probes the live
   `"$WEB_BASE_URL"/api/health` endpoint until it returns HTTP 200.
 
+### Enabling code scanning (CodeQL alerts)
+
+The `security` job runs CodeQL and uploads its results to GitHub's
+**Code scanning** feature — the workflow declares `security-events: write`
+in [.github/workflows/ci-cd.yml](.github/workflows/ci-cd.yml), which is the
+permission that authorizes the upload. No extra workflow setup is needed, but
+code scanning must be **available** on the repository for the upload to succeed:
+
+- **Public repos** — CodeQL code scanning is free; nothing to enable. The first
+  time the `security` job runs, results appear under the repository's
+  **Security → Code scanning** tab.
+- **Private repos** — code scanning requires **GitHub Advanced Security**
+  (included with GitHub Enterprise, or a paid add-on). Enable it under
+  **Settings → Code security** (toggle on Advanced Security, then Code scanning).
+
+So the job stays green either way, it first runs a **"Detect code scanning
+availability"** step: if the code scanning API is reachable (HTTP 200, or a
+404 meaning "enabled but no analyses yet") it runs CodeQL; if it returns
+HTTP 403 ("code scanning is not enabled" — a private repo without Advanced
+Security) it **skips** the CodeQL steps so the job still passes.
+
+Leave GitHub's **default setup** for code scanning **off** — this workflow is the
+"advanced" (workflow-based) setup, and turning on default setup as well would
+create a conflicting second CodeQL configuration. Alerts surface under
+**Security → Code scanning** after the `security` job completes on a pushed
+branch.
+
 ### How the deploy authenticates (OIDC, no stored secrets)
 
 The deploy job uses **federated (OIDC) credentials** — there are no long-lived

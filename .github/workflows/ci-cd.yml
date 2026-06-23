@@ -115,6 +115,15 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
+            // Probe the code scanning API to decide whether CodeQL can upload.
+            //   200 -> code scanning enabled, has results  -> run CodeQL
+            //   404 -> code scanning enabled, no analyses yet (first run, or a
+            //          freshly public repo) -> run CodeQL so the first analysis
+            //          gets created. Skipping here would be a chicken-and-egg
+            //          deadlock (no analysis is ever uploaded).
+            //   403 -> code scanning NOT enabled (e.g. a private repo without
+            //          GitHub Advanced Security) -> skip CodeQL so the job can
+            //          still pass without failing on the upload.
             try {
               await github.request("GET /repos/{owner}/{repo}/code-scanning/alerts", {
                 owner: context.repo.owner,
@@ -123,8 +132,13 @@ jobs:
               });
               core.setOutput("enabled", "true");
             } catch (error) {
-              core.notice(`Skipping CodeQL because code scanning is not enabled or not accessible (HTTP ${error.status ?? "unknown"}).`);
-              core.setOutput("enabled", "false");
+              if (error.status === 404) {
+                core.notice("Code scanning is enabled but has no analyses yet; running CodeQL to create the first one.");
+                core.setOutput("enabled", "true");
+              } else {
+                core.notice(`Skipping CodeQL because code scanning is not enabled or not accessible (HTTP ${error.status ?? "unknown"}).`);
+                core.setOutput("enabled", "false");
+              }
             }
 
       - name: Initialize CodeQL
