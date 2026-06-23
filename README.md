@@ -177,7 +177,7 @@ and (on merges to `main`) deploys CaseFlow to Azure using the
   and `npm test` (the backend test suite) against the emulator. (The data layer has no in-memory
   fallback, so a real Cosmos endpoint is required even in CI.)
 - **`security`** — runs `npm audit` (fails on high/critical runtime vulns) and
-  CodeQL static analysis over the TypeScript sources.
+  CodeQL static analysis over the TypeScript sources (skipped if code scanning is not enabled/accessible for the repo).
 - **`deploy`** — gated on both `test` and `security` passing, and only on a push
   to `main`. It logs in to Azure with OIDC, runs `azd provision` then
   `azd deploy`, and finishes with a smoke test that probes the live
