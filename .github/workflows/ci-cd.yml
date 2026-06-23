@@ -8,9 +8,9 @@ name: CI/CD
 #   azd pipeline config --provider github
 # It populates these GitHub Actions *variables* (Settings > Secrets and
 # variables > Actions > Variables) that the deploy job reads:
-#   AZURE_CLIENT_ID        - app registration (client) id of the deploy identity
-#   AZURE_TENANT_ID        - 72f988bf-86f1-41af-91ab-2d7cd011db47
-#   AZURE_SUBSCRIPTION_ID  - 220fc532-6091-423c-8ba0-66c2397d591b
+#   AZURE_CLIENT_ID        - client id of the deploy identity
+#   AZURE_TENANT_ID        - <your-tenant-id>
+#   AZURE_SUBSCRIPTION_ID  - <your-subscription-id>
 #   AZURE_ENV_NAME         - caseflow
 #   AZURE_LOCATION         - eastus2
 on:
@@ -157,8 +157,7 @@ jobs:
     # also add a matching federated credential, e.g.:
     #   az ad app federated-credential create --id <AZURE_CLIENT_ID> --parameters '{
     #     "name":"caseflow-env-production","issuer":"https://token.actions.githubusercontent.com",
-    #     "subject":"repo:jaydestro/caseflow:environment:production","audiences":["api://AzureADTokenExchange"]}'
-    # then restore `environment: production` here.
+    #     "subject":"repo:<owner>/<repo>:environment:production","audiences":["api://AzureADTokenExchange"]}'
     permissions:
       contents: read
       id-token: write # required for OIDC federated login
