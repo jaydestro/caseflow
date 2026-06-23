@@ -111,7 +111,7 @@ export class CaseService {
       updatedAt: ts,
     };
     await this.repos.upsertStatusEvent(ev);
-    // Fire off an audit record so we have a trail of who created what. We
+    // Fire off an audit record so we have a trail of what was created. We
     // don't need to wait for it — the create endpoint should return as soon
     // as the case is durably written.
     const audit: AuditLog = {
