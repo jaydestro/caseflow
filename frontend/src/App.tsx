@@ -1,11 +1,25 @@
 import { NavLink, Route, Routes } from 'react-router-dom';
+import { AuthProvider, useAuth } from './AuthContext';
 import { TenantProvider, useTenant } from './TenantContext';
 import { Dashboard } from './pages/Dashboard';
 import { CaseDetail } from './pages/CaseDetail';
 import { NewCase } from './pages/NewCase';
 import { Diagnostics } from './pages/Diagnostics';
 import { AgentWorkload } from './pages/AgentWorkload';
+import { Login } from './pages/Login';
 import { TenantLogo } from './tenantLogos';
+
+function UserMenu() {
+  const { username, logout } = useAuth();
+  return (
+    <span className="usermenu">
+      <span className="usermenu-name">{username}</span>
+      <button className="btn secondary" onClick={logout}>
+        Sign out
+      </button>
+    </span>
+  );
+}
 
 function TenantSwitcher() {
   const { tenants, current, setCurrentId, loading } = useTenant();
@@ -30,6 +44,7 @@ function Shell() {
       <div className="topbar">
         <div className="brand">CaseFlow</div>
         <TenantSwitcher />
+        <UserMenu />
       </div>
       <div className="layout">
         <nav className="sidebar">
@@ -58,10 +73,20 @@ function Shell() {
   );
 }
 
-export function App() {
+function Gate() {
+  const { authed } = useAuth();
+  if (!authed) return <Login />;
   return (
     <TenantProvider>
       <Shell />
     </TenantProvider>
+  );
+}
+
+export function App() {
+  return (
+    <AuthProvider>
+      <Gate />
+    </AuthProvider>
   );
 }

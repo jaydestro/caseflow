@@ -41,6 +41,61 @@ a:hover { text-decoration: underline; }
   border-radius: 6px;
   font-size: 13px;
 }
+.topbar .usermenu {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+.topbar .usermenu-name { font-size: 13px; color: #d1d5db; }
+.topbar .usermenu .btn { padding: 6px 12px; }
+
+/* Fake login (demo only) */
+.login-page {
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  padding: 24px;
+}
+.login-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 28px;
+  width: 100%;
+  max-width: 360px;
+  box-shadow: 0 8px 24px rgba(17, 24, 39, 0.06);
+}
+.login-brand { font-size: 22px; font-weight: 700; letter-spacing: 0.2px; }
+.login-sub { color: var(--muted); margin: 4px 0 20px; }
+.login-error {
+  background: #fee2e2;
+  color: var(--danger);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+.login-hint {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.login-hint strong { color: var(--text); display: block; margin-bottom: 4px; }
+.login-hint code {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 12px;
+  color: var(--text);
+}
+.login-hint p { margin: 10px 0 0; font-size: 12px; }
+
 
 .layout { display: grid; grid-template-columns: 240px 1fr; height: 100%; overflow: hidden; }
 
