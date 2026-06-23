@@ -1,0 +1,176 @@
+name: CI/CD
+
+# Feature branches & PRs  -> run tests (against the Cosmos DB emulator).
+# Push to main (i.e. a PR merge) -> run tests, then provision + deploy via azd.
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: [main]
+
+# Cancel superseded runs on the same ref (e.g. fast successive pushes).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # TEST — runs on every branch push and every PR.
+  # Spins up the Cosmos DB vNext emulator and runs the backend test suite
+  # against it (the data layer has no in-memory fallback).
+  # ---------------------------------------------------------------------------
+  test:
+    name: Build & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Start Cosmos DB emulator (vNext preview)
+        run: |
+          docker run -d --name cosmos-emulator \
+            -p 8081:8081 -p 1234:1234 \
+            mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-preview
+
+      - name: Wait for emulator to be ready
+        run: |
+          for i in $(seq 1 60); do
+            if curl -k -s -o /dev/null https://localhost:8081/; then
+              echo "Cosmos emulator is ready."
+              exit 0
+            fi
+            echo "Waiting for Cosmos emulator... ($i/60)"
+            sleep 5
+          done
+          echo "::error::Cosmos emulator did not become ready in time."
+          docker logs cosmos-emulator || true
+          exit 1
+
+      - name: Build
+        run: npm run build
+
+      - name: Lint backend
+        run: npm run lint -w backend
+
+      - name: Run tests
+        env:
+          COSMOS_ENDPOINT: https://localhost:8081
+          # Emulator uses a self-signed cert; trust it for this run.
+          NODE_TLS_REJECT_UNAUTHORIZED: '0'
+        run: npm test
+
+      - name: Dump emulator logs on failure
+        if: failure()
+        run: docker logs cosmos-emulator || true
+
+  # ---------------------------------------------------------------------------
+  # SECURITY — dependency + static analysis on every branch push and PR.
+  # Fails on known high/critical vulnerabilities in runtime dependencies and
+  # runs CodeQL static analysis over the TypeScript sources.
+  # ---------------------------------------------------------------------------
+  security:
+    name: Security scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write # required to upload CodeQL results
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Audit runtime dependencies (fail on high/critical)
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+
+      - name: Build for CodeQL
+        run: npm run build
+
+      - name: CodeQL analysis
+        uses: github/codeql-action/analyze@v3
+
+  # ---------------------------------------------------------------------------
+  # DEPLOY — only when code lands on main (a PR merge). Requires `test` AND
+  # `security` to pass. Uses azd with OIDC (federated) auth — no stored secrets.
+  # ---------------------------------------------------------------------------
+  deploy:
+    name: Provision & deploy
+    needs: [test, security]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write # required for OIDC federated login
+    env:
+      AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      AZURE_ENV_NAME: ${{ vars.AZURE_ENV_NAME }}
+      AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install azd
+        uses: Azure/setup-azd@v2
+
+      - name: Log in to Azure (federated OIDC)
+        run: |
+          azd auth login `
+            --client-id "$Env:AZURE_CLIENT_ID" `
+            --federated-credential-provider "github" `
+            --tenant-id "$Env:AZURE_TENANT_ID"
+        shell: pwsh
+
+      - name: Provision infrastructure
+        run: azd provision --no-prompt
+        shell: pwsh
+
+      - name: Deploy services
+        run: azd deploy --no-prompt
+        shell: pwsh
+
+      - name: Smoke test (verify the live app is healthy)
+        shell: pwsh
+        run: |
+          $line = azd env get-values | Select-String '^WEB_BASE_URL='
+          if (-not $line) { Write-Error 'WEB_BASE_URL not found in azd outputs.'; exit 1 }
+          $url = ($line.Line -split '=', 2)[1].Trim().Trim('"')
+          $health = "$url/api/health"
+          Write-Host "Probing $health"
+          for ($i = 1; $i -le 20; $i++) {
+            try {
+              $resp = Invoke-WebRequest -Uri $health -UseBasicParsing -TimeoutSec 10
+              if ($resp.StatusCode -eq 200 -and $resp.Content -match 'ok') {
+                Write-Host "Deployment healthy: $($resp.Content)"
+                exit 0
+              }
+              Write-Host "Attempt $i/20: HTTP $($resp.StatusCode)"
+            } catch {
+              Write-Host "Attempt $i/20: $($_.Exception.Message)"
+            }
+            Start-Sleep -Seconds 15
+          }
+          Write-Error "Smoke test failed: $health did not return healthy in time."
+          exit 1

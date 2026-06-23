@@ -1,7 +1,12 @@
 node_modules
 dist
 .env
+.env.*
+!.env.example
 *.log
 .vite
 coverage
 .DS_Store
+
+# Cosmos DB Agent Kit — installed globally via `npx skills add`, never vendored here
+.agents/

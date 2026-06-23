@@ -1,0 +1,27 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/main/schemas/v1.0/azure.yaml.json
+
+name: caseflow
+metadata:
+  template: caseflow@0.1.0
+
+# Two containerized services deployed to Azure Container Apps.
+# - api: Express/TypeScript backend (internal ingress, Entra -> Cosmos DB)
+# - web: React/Vite SPA served by nginx, reverse-proxying /api to the backend
+services:
+  api:
+    project: ./backend
+    language: ts
+    host: containerapp
+    docker:
+      path: ./Dockerfile
+      context: .
+      remoteBuild: true
+
+  web:
+    project: ./frontend
+    language: ts
+    host: containerapp
+    docker:
+      path: ./Dockerfile
+      context: .
+      remoteBuild: true

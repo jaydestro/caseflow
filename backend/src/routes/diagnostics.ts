@@ -1,7 +1,9 @@
 import { Router } from 'express';
+import { getRepositories } from '../data';
 import { config } from '../lib/config';
 import { telemetry } from '../lib/telemetry';
 import { isAzureMonitorConfigured, queryCosmosUsage } from '../lib/azureMonitor';
+import { generateTraffic } from '../services/trafficGenerator';
 import {
   buildLogsLink,
   cosmosInsightsLink,
@@ -40,6 +42,33 @@ diagnosticsRouter.get('/queries', (_req, res) => {
 diagnosticsRouter.post('/clear', (_req, res) => {
   telemetry.clear();
   res.json({ ok: true });
+});
+
+// ---- Simulated traffic generator -----------------------------------------
+//
+// Runs a representative sample of caller sessions in-process (tagged as `user`
+// traffic) so the Diagnostics page fills with real RU/latency data on demand,
+// then projects the cost to a target daily caller volume. Intended as a
+// teaching aid — clearly labelled in the UI as simulated load.
+diagnosticsRouter.post('/traffic', async (req, res, next) => {
+  try {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const callersPerDay = clampInt(body.callersPerDay, 10000, 1, 1_000_000);
+    // Keep the sample well under the telemetry ring buffer (200) so the RU
+    // measurement stays accurate, and bounded so the emulator isn't hammered.
+    const sampleCallers = clampInt(body.sampleCallers, 40, 1, 60);
+    const businessHours = clampInt(body.businessHours, 8, 1, 24);
+
+    const repos = await getRepositories();
+    const result = await generateTraffic(repos, config.containerRUs, {
+      callersPerDay,
+      sampleCallers,
+      businessHours,
+    });
+    res.json(result);
+  } catch (e) {
+    next(e);
+  }
 });
 
 // ---- Baseline snapshot for before/after comparison -----------------------
@@ -129,3 +158,10 @@ diagnosticsRouter.get('/azure-compare', async (req, res, next) => {
     next(e);
   }
 });
+
+/** Parse a numeric request field, falling back to a default and clamping to a range. */
+function clampInt(value: unknown, fallback: number, min: number, max: number): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(n)));
+}

@@ -9,6 +9,7 @@ import {
   SupportCase,
   TelemetrySnapshot,
   Tenant,
+  TrafficResult,
   WorkloadRow,
 } from './types';
 
@@ -90,6 +91,11 @@ export const api = {
   diagnostics: () => http<DiagnosticsResponse>('/api/_diagnostics/queries'),
   clearDiagnostics: () =>
     http<{ ok: boolean }>('/api/_diagnostics/clear', { method: 'POST' }),
+  generateTraffic: (body: { callersPerDay: number; sampleCallers?: number; businessHours?: number }) =>
+    http<TrafficResult>('/api/_diagnostics/traffic', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
   azureCompare: (windowMinutes = 15) =>
     http<AzureCompareResponse>(`/api/_diagnostics/azure-compare${qs({ windowMinutes: String(windowMinutes) })}`),
 

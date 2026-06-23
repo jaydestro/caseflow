@@ -1,6 +1,6 @@
 The CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.
 
- RUN  v2.1.9 C:/Users/jagord/Downloads/vscode/aicodingsummitdemo/backend
+ RUN  v2.1.9 C:/Users/jagord/Downloads/vscode/caseflow/backend
 
 {"level":30,"time":1779213786686,"service":"caseflow-api","msg":"using Cosmos DB store"}
 (node:41328) Warning: Setting the NODE_TLS_REJECT_UNAUTHORIZED environment variable to '0' makes TLS connections and HTTPS requests insecure by disabling certificate verification.

@@ -1,1 +1,1 @@
-{"root":["./src/app.tsx","./src/tenantcontext.tsx","./src/api.ts","./src/main.tsx","./src/types.ts","./src/ui.tsx","./src/pages/casedetail.tsx","./src/pages/dashboard.tsx","./src/pages/diagnostics.tsx","./src/pages/newcase.tsx"],"version":"5.9.3"}
+{"root":["./src/app.tsx","./src/tenantcontext.tsx","./src/api.ts","./src/main.tsx","./src/tenantlogos.tsx","./src/types.ts","./src/ui.tsx","./src/vite-env.d.ts","./src/pages/agentworkload.tsx","./src/pages/casedetail.tsx","./src/pages/dashboard.tsx","./src/pages/diagnostics.tsx","./src/pages/newcase.tsx"],"version":"5.9.3"}

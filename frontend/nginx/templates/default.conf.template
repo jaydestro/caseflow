@@ -1,0 +1,27 @@
+server {
+    listen       80;
+    server_name  _;
+
+    root   /usr/share/nginx/html;
+    index  index.html;
+
+    # Reverse-proxy API calls to the internal backend Container App.
+    # Keeping the SPA on relative /api paths avoids CORS and baking URLs
+    # into the build. ${BACKEND_URL}/${BACKEND_HOST} are injected at startup.
+    location /api/ {
+        proxy_pass               ${BACKEND_URL};
+        proxy_http_version       1.1;
+        proxy_set_header         Host ${BACKEND_HOST};
+        proxy_set_header         X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header         X-Forwarded-Proto $scheme;
+        # The backend uses internal ingress with the environment's managed
+        # certificate; send SNI and trust it (in-environment traffic).
+        proxy_ssl_server_name    on;
+        proxy_ssl_verify         off;
+    }
+
+    # SPA fallback — let the client router handle deep links.
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}

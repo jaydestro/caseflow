@@ -1,7 +1,28 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { api } from '../api';
-import { AzureCompareResponse, BeforeAfterComparison, DiagnosticsResponse } from '../types';
+import { AzureCompareResponse, BeforeAfterComparison, DiagnosticsResponse, TrafficResult } from '../types';
 import { formatDate } from '../ui';
+
+/** Microsoft Learn references shown next to each metric so students can dig deeper. */
+const DOCS = {
+  requestUnits: 'https://learn.microsoft.com/azure/cosmos-db/request-units',
+  throughput: 'https://learn.microsoft.com/azure/cosmos-db/set-throughput',
+  optimizeCost: 'https://learn.microsoft.com/azure/cosmos-db/optimize-cost-reads-writes',
+  pointReads: 'https://learn.microsoft.com/azure/cosmos-db/optimize-cost-reads-writes#point-reads',
+  partitioning: 'https://learn.microsoft.com/azure/cosmos-db/partitioning-overview',
+  query: 'https://learn.microsoft.com/azure/cosmos-db/nosql/how-to-query-container',
+  crossPartition:
+    'https://learn.microsoft.com/azure/cosmos-db/nosql/how-to-query-container#avoid-cross-partition-queries',
+} as const;
+
+/** A small "Learn more ↗" link to Microsoft Learn that opens in a new tab. */
+function DocLink({ href, children = 'Learn more' }: { href: string; children?: ReactNode }) {
+  return (
+    <a className="doc-link" href={href} target="_blank" rel="noreferrer">
+      {children} ↗
+    </a>
+  );
+}
 
 /** Show what % of provisioned RU/s a single operation would consume if sustained 1/s */
 function budgetPct(ru: number | null, containerRUs: number): string {
@@ -16,6 +37,7 @@ export function Diagnostics() {
   const [error, setError] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [hideBackground, setHideBackground] = useState(true);
+  const [showAzure, setShowAzure] = useState(false);
   const [compare, setCompare] = useState<AzureCompareResponse | null>(null);
   const [compareError, setCompareError] = useState<string | null>(null);
   const [compareLoading, setCompareLoading] = useState(false);
@@ -23,6 +45,14 @@ export function Diagnostics() {
   const [snapshot, setSnapshot] = useState<BeforeAfterComparison | null>(null);
   const [snapshotExists, setSnapshotExists] = useState(false);
   const [snapshotLoading, setSnapshotLoading] = useState(false);
+  const [callersPerDay, setCallersPerDay] = useState(10000);
+  const [trafficRunning, setTrafficRunning] = useState(false);
+  const [traffic, setTraffic] = useState<TrafficResult | null>(null);
+  const [trafficError, setTrafficError] = useState<string | null>(null);
+  const [throughputMode, setThroughputMode] = useState<'provisioned' | 'autoscale'>(() => {
+    const saved = typeof localStorage !== 'undefined' ? localStorage.getItem('caseflow.throughputMode') : null;
+    return saved === 'autoscale' ? 'autoscale' : 'provisioned';
+  });
 
   async function refresh() {
     try {
@@ -87,15 +117,276 @@ export function Diagnostics() {
     await refresh();
   }
 
+  async function runTraffic() {
+    setTrafficRunning(true);
+    setTrafficError(null);
+    try {
+      const r = await api.generateTraffic({ callersPerDay });
+      setTraffic(r);
+      await refresh();
+    } catch (e) {
+      setTrafficError((e as Error).message);
+    } finally {
+      setTrafficRunning(false);
+    }
+  }
+
   if (error) return <div className="error">{error}</div>;
   if (!data) return <div className="loading">Loading diagnostics…</div>;
 
   const { summary, samples, containerRUs } = data;
+  const portalEnabled = Boolean(data.portalEnabled);
+  const isAutoscale = throughputMode === 'autoscale';
+  const autoscaleMin = Math.max(1, Math.round(containerRUs * 0.1));
   const filtered = hideBackground ? samples.filter((s) => s.source !== 'background') : samples;
   const reversed = [...filtered].reverse();
 
   return (
     <div>
+      <div className="card" style={{ marginBottom: 12 }}>
+        <div className="card-body" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600 }}>
+            Throughput mode
+            <select
+              value={throughputMode}
+              onChange={(e) => {
+                const v = e.target.value === 'autoscale' ? 'autoscale' : 'provisioned';
+                setThroughputMode(v);
+                try {
+                  localStorage.setItem('caseflow.throughputMode', v);
+                } catch {
+                  /* localStorage unavailable — non-fatal */
+                }
+              }}
+              style={{ fontWeight: 500 }}
+            >
+              <option value="provisioned">Provisioned (manual)</option>
+              <option value="autoscale">Autoscale</option>
+            </select>
+          </label>
+          <span className="hint" style={{ margin: 0, flex: '1 1 320px' }}>
+            {isAutoscale
+              ? `Cosmos DB scales between ${autoscaleMin.toLocaleString()} and ${containerRUs.toLocaleString()} RU/s automatically and bills each hour on the busiest second (floor 10% of max, at 1.5\u00d7 the provisioned rate). Best for spiky or unpredictable traffic.`
+              : `You reserve a fixed ${containerRUs.toLocaleString()} RU/s and pay for all of it every hour, 24/7. Cheapest when utilization is steady and high. Requests above the budget get HTTP 429.`}{' '}
+            <DocLink href={DOCS.throughput}>Provisioned vs autoscale</DocLink>
+          </span>
+        </div>
+      </div>
+
+      <div className="card explainer">
+        <div className="card-body">
+          <h2>How to read this page</h2>
+          <p>
+            Every time CaseFlow talks to Azure Cosmos DB, this page records what it cost. It's a
+            magnifying glass for spotting the <strong>deliberate anti-patterns</strong> baked into
+            this sample app — and for proving a fix actually worked.
+          </p>
+          <p>
+            <strong>RU</strong> (Request Unit) is Cosmos DB's unit of work — every read, write, and
+            query has an RU price. This container is configured for{' '}
+            <strong>{isAutoscale ? 'autoscale' : 'provisioned (manual)'}</strong> throughput
+            {isAutoscale ? (
+              <>
+                {' '}— it scales between <strong>{autoscaleMin.toLocaleString()}</strong> and{' '}
+                <strong>{containerRUs.toLocaleString()} RU/s</strong> on demand
+              </>
+            ) : (
+              <>
+                {' '}with a fixed budget of <strong>{containerRUs.toLocaleString()} RU/s</strong>
+              </>
+            )}
+            ; cheaper operations let you do more within it.{' '}
+            <strong>Lower RU and lower latency are better.</strong>
+          </p>
+          <p>
+            A <strong>point read</strong> (fetch one item by its id + partition key) is the cheapest
+            possible operation. A <strong>cross-partition query</strong> fans out to every physical
+            partition and costs far more — those are highlighted in red below because they're usually
+            the thing worth fixing.
+          </p>
+          <p style={{ marginBottom: 0 }}>
+            <strong>Try it:</strong>
+          </p>
+          <ol className="steps">
+            <li>Click around the app (dashboard, a case, agent workload) to generate traffic.</li>
+            <li>Watch the rows appear here — note the RU charge and which ones go cross-partition.</li>
+            <li>
+              Press <strong>📸 Snapshot baseline</strong>, ask the coding agent to fix an
+              anti-pattern, regenerate traffic, then <strong>Compare now</strong> to see the
+              before/after.
+            </li>
+          </ol>
+        </div>
+      </div>
+
+      <div className="card" style={{ borderLeft: '4px solid #8b5cf6' }}>
+        <div className="card-header">
+          <span>Before / After comparison</span>
+          <div className="toolbar">
+            {snapshotExists ? (
+              <>
+                <button className="btn" onClick={refreshComparison} disabled={snapshotLoading}
+                  style={{ background: '#8b5cf6' }}>
+                  {snapshotLoading ? '…' : '🔄 Compare now'}
+                </button>
+                <button className="btn secondary" onClick={takeSnapshot}
+                  disabled={snapshotLoading || summary.count === 0}
+                  title="Replace the saved baseline with current data">
+                  📸 Re-snapshot
+                </button>
+                <button className="btn secondary" onClick={clearSnapshot}>Clear baseline</button>
+              </>
+            ) : (
+              <button className="btn" onClick={takeSnapshot}
+                disabled={snapshotLoading || summary.count === 0}
+                style={{ background: '#059669' }}>
+                {snapshotLoading ? '…' : '📸 Take baseline'}
+              </button>
+            )}
+          </div>
+        </div>
+        <div className="card-body">
+          {!snapshotExists ? (
+            <p style={{ color: '#6b7280', fontSize: 13 }}>
+              Capture the current telemetry as a <strong>“before”</strong> baseline, then apply a fix,
+              regenerate traffic, and <strong>Compare now</strong> to see the RU and latency delta.
+              {summary.count === 0 && ' Generate some traffic first so there is something to snapshot.'}
+            </p>
+          ) : !snapshot ? (
+            <p style={{ color: '#6b7280', fontSize: 13 }}>
+              Baseline saved. Apply your fix, generate traffic, then click <strong>Compare now</strong>.
+            </p>
+          ) : (
+            <BeforeAfterPanel comparison={snapshot} />
+          )}
+        </div>
+      </div>
+
+      <div className="advanced-toggle">
+        <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={showAzure}
+            onChange={(e) => setShowAzure(e.target.checked)}
+          />
+          <span>
+            <strong>Advanced: Azure-side verification</strong> — cross-check these numbers against
+            the Cosmos account's own Log Analytics logs and open Azure Portal deep links.
+          </span>
+        </label>
+        <span style={{ fontSize: 12 }}>
+          {showAzure
+            ? portalEnabled
+              ? 'These links open the demo deployment\u2019s own Azure resources — you need access to that subscription for them to load.'
+              : 'Azure Monitor isn\u2019t configured for this instance, so there\u2019s nothing to cross-check against. The panels below already work on their own.'
+            : 'Off by default. Leave this off unless you are presenting and have access to the deployed demo\u2019s Azure subscription.'}
+        </span>
+      </div>
+
+      {showAzure && (
+        <AzureComparePanel
+          compare={compare}
+          error={compareError}
+          loading={compareLoading}
+          windowMinutes={windowMinutes}
+          onWindowChange={setWindowMinutes}
+          onRefresh={refreshCompare}
+        />
+      )}
+
+      <div className="card">
+        <div className="card-header">
+          <span>🚦 Simulate traffic</span>
+          <div className="toolbar">
+            <label style={{ fontSize: 12, color: '#6b7280' }}>
+              callers/day{' '}
+              <input
+                type="number"
+                min={1}
+                max={1000000}
+                step={1000}
+                value={callersPerDay}
+                onChange={(e) => setCallersPerDay(Number(e.target.value) || 0)}
+                style={{ width: 96 }}
+              />
+            </label>
+            <button className="btn" onClick={runTraffic} disabled={trafficRunning}>
+              {trafficRunning ? 'Generating…' : 'Generate traffic'}
+            </button>
+          </div>
+        </div>
+        <div className="card-body">
+          <p style={{ marginTop: 0, color: '#6b7280', fontSize: 13 }}>
+            Runs a small sample of <strong>simulated</strong> caller sessions in-process (the same
+            read-heavy mix a real support desk produces), tags them as user traffic, and{' '}
+            <strong>projects the cost</strong> to your target of{' '}
+            {callersPerDay.toLocaleString()} callers/day. Watch the telemetry table and stat cards
+            below fill in, then check whether the projected RU/s would exceed your throughput budget.
+          </p>
+          {trafficError && <div className="error">{trafficError}</div>}
+          {traffic && (
+            <>
+              <div className="diag-summary" style={{ marginBottom: 12 }}>
+                <div className="stat">
+                  <div className="label">Sample run</div>
+                  <div className="value">{traffic.opsRun.toLocaleString()} ops</div>
+                  <div className="sub">
+                    {traffic.sampleCallers} caller sessions · {traffic.crossPartitionOps}{' '}
+                    cross-partition · {traffic.errors} errors
+                  </div>
+                </div>
+                <div className="stat">
+                  <div className="label">Measured cost</div>
+                  <div className="value">{traffic.measuredRu.toLocaleString()} RU</div>
+                  <div className="sub">
+                    {traffic.avgRuPerOp} RU/op · {traffic.avgRuPerCaller} RU/caller
+                  </div>
+                </div>
+                <div className="stat">
+                  <div className="label">Projected at {traffic.callersPerDay.toLocaleString()}/day</div>
+                  <div
+                    className="value"
+                    style={{ color: traffic.exceedsBudget ? '#b91c1c' : '#065f46' }}
+                  >
+                    {traffic.projectedRuPerSecPeak.toLocaleString()} RU/s peak
+                  </div>
+                  <div className="sub">
+                    ~{traffic.projectedRuPerSecAvg.toLocaleString()} RU/s avg over 24h ·{' '}
+                    {traffic.projectedDailyRu.toLocaleString()} RU/day
+                  </div>
+                </div>
+              </div>
+              <p style={{ margin: 0, fontSize: 13 }}>
+                {traffic.exceedsBudget ? (
+                  <span style={{ color: '#b91c1c' }}>
+                    ⚠️ At {traffic.callersPerDay.toLocaleString()} callers/day concentrated into a{' '}
+                    {traffic.businessHours}-hour workday, the projected peak of{' '}
+                    <strong>{traffic.projectedRuPerSecPeak.toLocaleString()} RU/s</strong> exceeds the{' '}
+                    {isAutoscale ? 'autoscale max' : 'provisioned'}{' '}
+                    <strong>{traffic.containerRUs.toLocaleString()} RU/s</strong> — callers would hit
+                    HTTP 429 throttling.{' '}
+                    {isAutoscale
+                      ? 'Raise the autoscale max or fix the cross-partition anti-patterns to lower RU/op.'
+                      : 'Fixing the cross-partition anti-patterns lowers RU/op and pulls this back under budget.'}
+                  </span>
+                ) : (
+                  <span style={{ color: '#065f46' }}>
+                    ✅ The projected peak of{' '}
+                    <strong>{traffic.projectedRuPerSecPeak.toLocaleString()} RU/s</strong> fits within
+                    the {isAutoscale ? 'autoscale max' : 'provisioned'}{' '}
+                    <strong>{traffic.containerRUs.toLocaleString()} RU/s</strong>.{' '}
+                    {isAutoscale
+                      ? `Because autoscale falls to ${autoscaleMin.toLocaleString()} RU/s when idle, you only pay for the busy hours — a good fit for spiky ${traffic.callersPerDay.toLocaleString()}/day traffic.`
+                      : 'Cheaper operations leave even more headroom.'}
+                  </span>
+                )}{' '}
+                <DocLink href={DOCS.optimizeCost}>Optimize request cost</DocLink>
+              </p>
+            </>
+          )}
+        </div>
+      </div>
+
       <div className="card">
         <div className="card-header">
           <span>Query telemetry</span>
@@ -118,28 +409,43 @@ export function Diagnostics() {
             </label>
             <button className="btn secondary" onClick={refresh}>Refresh</button>
             <button className="btn" onClick={clear}>Clear</button>
-            <button
-              className="btn"
-              onClick={takeSnapshot}
-              disabled={snapshotLoading || summary.count === 0}
-              style={{ background: snapshotExists ? '#d97706' : '#059669' }}
-              title={snapshotExists ? 'Replace the saved baseline with current data' : 'Snapshot current state as the "before" baseline'}
-            >
-              {snapshotLoading ? '…' : snapshotExists ? '📸 Re-snapshot' : '📸 Snapshot baseline'}
-            </button>
           </div>
         </div>
         <div className="card-body">
           <div className="diag-summary">
             <div className="stat">
-              <div className="label">Provisioned</div>
+              <div className="label">{isAutoscale ? 'Autoscale max' : 'Provisioned'}</div>
               <div className="value">{containerRUs.toLocaleString()} RU/s</div>
-              <div className="sub">container throughput budget</div>
+              <div className="sub">
+                {isAutoscale
+                  ? `scales ${autoscaleMin.toLocaleString()}\u2013${containerRUs.toLocaleString()} RU/s`
+                  : 'container throughput budget'}
+              </div>
+              <p className="hint">
+                {isAutoscale ? (
+                  <>
+                    The ceiling Cosmos DB scales up to. It falls to {autoscaleMin.toLocaleString()} RU/s
+                    (10% of max) when idle and bills each hour on the busiest second; exceed the max and
+                    you still get HTTP 429s.{' '}
+                  </>
+                ) : (
+                  <>
+                    The fixed per-second budget reserved for this container. Every operation draws from
+                    it; go over and Cosmos DB rate-limits you with HTTP 429s.{' '}
+                  </>
+                )}
+                <DocLink href={DOCS.throughput}>{isAutoscale ? 'Autoscale throughput' : 'Provisioned throughput'}</DocLink>
+              </p>
             </div>
             <div className="stat">
               <div className="label">User RU</div>
               <div className="value">{summary.userRu.toFixed(2)}</div>
               <div className="sub">{summary.userCount} ops from HTTP requests</div>
+              <p className="hint">
+                Request Units spent on operations <em>you</em> triggered by clicking around the app.
+                This is the number a good fix should drive down.{' '}
+                <DocLink href={DOCS.requestUnits}>What is an RU?</DocLink>
+              </p>
             </div>
             <div className="stat">
               <div className="label">Background RU</div>
@@ -147,16 +453,32 @@ export function Diagnostics() {
                 {summary.backgroundRu.toFixed(2)}
               </div>
               <div className="sub">{summary.backgroundCount} ops (cache warmer)</div>
+              <p className="hint">
+                RU burned by CaseFlow's own cache-warmer loop running on a timer — <em>not</em> your
+                clicks. Lots of background RU competing with real traffic is itself an anti-pattern
+                worth questioning.{' '}
+                <DocLink href={DOCS.requestUnits}>RU considerations</DocLink>
+              </p>
             </div>
             <div className="stat">
               <div className="label">Max RU / op</div>
               <div className="value">{summary.maxRu.toFixed(2)}</div>
               <div className="sub">{budgetPct(summary.maxRu, containerRUs)} of budget per call</div>
+              <p className="hint">
+                The single most expensive operation captured, shown as a share of the provisioned
+                budget. A high value here flags one query worth optimizing first.{' '}
+                <DocLink href={DOCS.optimizeCost}>Optimize request cost</DocLink>
+              </p>
             </div>
             <div className="stat">
               <div className="label">Avg duration</div>
               <div className="value">{summary.avgDurationMs.toFixed(1)} ms</div>
               <div className="sub">per op</div>
+              <p className="hint">
+                Average wall-clock time per operation. Point reads are usually a few ms;
+                cross-partition queries climb as the container grows and fans out wider.{' '}
+                <DocLink href={DOCS.query}>How queries run</DocLink>
+              </p>
             </div>
             <div className="stat">
               <div className="label">Cross-partition</div>
@@ -164,12 +486,43 @@ export function Diagnostics() {
                 {summary.crossPartitionCount}
               </div>
               <div className="sub">queries that fanned out</div>
+              <p className="hint">
+                Queries with no partition-key filter, so Cosmos DB had to check every physical
+                partition (~2.5+ RU each). The classic cost driver — and the usual thing to fix.{' '}
+                <DocLink href={DOCS.crossPartition}>Avoid cross-partition queries</DocLink>
+              </p>
             </div>
           </div>
 
+          <div className="legend">
+            <span className="item">
+              <span className="swatch user" /> <strong>user request</strong> — an operation caused by
+              something you did in the UI (a click or page load)
+            </span>
+            <span className="item">
+              <span className="swatch bg" /> <strong>background</strong> — the cache-warmer timer loop
+              running on its own, not from your click
+            </span>
+            <span className="item">
+              <span className="swatch cp" /> <strong>cross-partition</strong> — a query with no
+              partition-key filter that fanned out to every partition (expensive — usual fix
+              candidate) <DocLink href={DOCS.crossPartition}>docs</DocLink>
+            </span>
+            <span className="item">
+              <span className="tag-pr">point</span> <strong>point read</strong> — a single-item lookup
+              by id + partition key, the cheapest read Cosmos DB offers (~1 RU){' '}
+              <DocLink href={DOCS.pointReads}>docs</DocLink>
+            </span>
+          </div>
+
           <p style={{ color: '#6b7280', fontSize: 13, margin: '0 0 12px' }}>
-            Each row shows the RU charge for one Cosmos operation, and what fraction of the
-            container's provisioned throughput it consumed.
+            Each row is one Cosmos DB operation.{' '}
+            <strong>RU</strong> (<a className="doc-link" href={DOCS.requestUnits} target="_blank" rel="noreferrer">Request Unit ↗</a>)
+            is what it cost; <strong>% budget</strong> is that cost as a share of the container's
+            provisioned throughput if you ran it once per second.{' '}
+            <a className="doc-link" href={DOCS.optimizeCost} target="_blank" rel="noreferrer">
+              Point reads vs. queries ↗
+            </a>
           </p>
 
           {filtered.length === 0 ? (
@@ -191,7 +544,7 @@ export function Diagnostics() {
                   <th>RU</th>
                   <th>% budget</th>
                   <th>Partition</th>
-                  <th>Logs</th>
+                  {showAzure && <th>Azure</th>}
                 </tr>
               </thead>
               <tbody>
@@ -234,19 +587,21 @@ export function Diagnostics() {
                         <span className="tag-pr">point</span>
                       )}
                     </td>
-                    <td>
-                      {s.portalLink ? (
-                        <a
-                          href={s.portalLink}
-                          target="_blank"
-                          rel="noreferrer"
-                          title="Open this request in Azure Log Analytics (±30s window)"
-                          style={{ fontSize: 11, color: '#2563eb', textDecoration: 'none' }}
-                        >
-                          ↗ Azure
-                        </a>
-                      ) : null}
-                    </td>
+                    {showAzure && (
+                      <td>
+                        {s.portalLink ? (
+                          <a
+                            href={s.portalLink}
+                            target="_blank"
+                            rel="noreferrer"
+                            title="Open this request in Azure Log Analytics (±30s window). Requires access to the demo's own Azure subscription."
+                            style={{ fontSize: 11, color: '#2563eb', textDecoration: 'none' }}
+                          >
+                            ↗ Azure
+                          </a>
+                        ) : null}
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -254,39 +609,6 @@ export function Diagnostics() {
           )}
         </div>
       </div>
-
-      {snapshotExists && (
-        <div className="card" style={{ borderLeft: '4px solid #8b5cf6' }}>
-          <div className="card-header">
-            <span>Before / After comparison</span>
-            <div className="toolbar">
-              <button className="btn" onClick={refreshComparison} disabled={snapshotLoading}
-                style={{ background: '#8b5cf6' }}>
-                {snapshotLoading ? '…' : '🔄 Compare now'}
-              </button>
-              <button className="btn secondary" onClick={clearSnapshot}>Clear baseline</button>
-            </div>
-          </div>
-          <div className="card-body">
-            {!snapshot ? (
-              <p style={{ color: '#6b7280', fontSize: 13 }}>
-                Baseline saved. Apply your fix, generate traffic, then click <strong>Compare now</strong>.
-              </p>
-            ) : (
-              <BeforeAfterPanel comparison={snapshot} />
-            )}
-          </div>
-        </div>
-      )}
-
-      <AzureComparePanel
-        compare={compare}
-        error={compareError}
-        loading={compareLoading}
-        windowMinutes={windowMinutes}
-        onWindowChange={setWindowMinutes}
-        onRefresh={refreshCompare}
-      />
     </div>
   );
 }

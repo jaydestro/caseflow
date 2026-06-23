@@ -1,25 +1,41 @@
-# CaseFlow
+# CaseFlow — an educational Azure Cosmos DB sample
 
-CaseFlow is the internal multi-tenant support app built by **Northstar Helpdesk**,
-a Series-A B2B SaaS that sells a white-labelled help-desk product to small
-companies. Three tenants are live in production today: Contoso (their largest
-customer, ~900 closed cases of history), Northwind, and Fabrikam.
+> **What this is.** CaseFlow is an **educational tool** for people learning
+> Azure Cosmos DB. It is a deliberately flawed sample app, seeded with common
+> Cosmos DB anti-patterns (plus a few TypeScript/Node code smells), so you can
+> practice **spotting potential problems and applying the fixes** with the help
+> of the **[Azure Cosmos DB Agent Kit](https://github.com/AzureCosmosDB/cosmosdb-agent-kit)**.
+>
+> **What this is not.** This is **not** production software and is **not** a
+> template to build a real app on. The slow queries, insecure defaults, and
+> correctness bugs in this repo are *intentional teaching material* — do not
+> copy them into anything real.
 
-This repo is the v1 build. It was written by a 4-engineer team in 8 weeks to
-hit a launch date. None of them had used Cosmos DB before. The app works, it
-has tests, it has docs, and it has been in production for 18 months.
+## How to use it
 
-It is also slow, expensive, and quietly broken in ways nobody on the team has
-had time to chase down. The on-call rotation has a running joke that the
-dashboard "takes a sip of coffee" to load. The Cosmos bill grew faster than
-the customer count. A junior engineer noticed last week that two simultaneous
-PATCH requests to the same case can lose one of the updates.
+1. **Install the Cosmos DB Agent Kit globally** so your AI coding agent gains
+   the Cosmos DB best-practice skills. The kit is intentionally **not** vendored
+   into this repo — it changes often, so always install it fresh:
 
-Northstar's CTO has asked an AI coding agent to take a pass over the
-codebase: not just the database, but the TypeScript and Node code around it
-too. The deliverable for the on-stage demo is a prioritized list of real
-problems the agent can find and fix, backed by tooling output and behavioral
-evidence — not vibes.
+   ```bash
+   npx skills add AzureCosmosDB/cosmosdb-agent-kit
+   ```
+
+2. **Run the app locally** (see *Local setup* below).
+
+3. **Ask your agent to review the code and the running Diagnostics page.** With
+   the agent kit installed it can recognise the intentional Cosmos DB
+   anti-patterns, explain *why* each one hurts, and propose a fix. The goal of
+   the exercise is to find and fix the problems below.
+
+## The scenario
+
+To make the exercise concrete, the sample is dressed up as a small fictional
+multi-tenant help-desk called CaseFlow, with three sample tenants — Contoso,
+Northwind, and Fabrikam. The code is written to *look* like an ordinary first
+build while hiding the kinds of problems teams accumulate when they are new to
+Cosmos DB: it is slow, it is expensive, and it has a couple of subtle
+correctness bugs. Finding and fixing them is the point.
 
 ## Stack
 
@@ -74,12 +90,12 @@ COSMOS_CONTAINER=entities
 | `npm run lint`     | ESLint (backend)                         |
 | `npm run build`    | Type-check and build both packages       |
 
-## Demo scenario
+## What to look for
 
-The app looks normal. The AI coding agent's job is to use the tools available
-to it — `tsc`, `eslint`, the Diagnostics page, the test suite, log output —
-to identify and fix the problems Northstar has been living with. The
-problems fall into three buckets:
+The app looks normal. Your job (with the agent kit helping) is to use the
+tools available — `tsc`, `eslint`, the Diagnostics page, the test suite, log
+output — to identify and fix the intentional problems. They fall into three
+buckets:
 
 ### 1. Database design and query problems
 
@@ -96,7 +112,7 @@ RU/op rising with seed size, and per-endpoint latency in the hundreds of ms.
 
 ### 2. Cosmos SDK / configuration problems
 
-- `consistencyLevel: 'Strong'` pinned at the client. Northstar's workload is
+- `consistencyLevel: 'Strong'` pinned at the client. This workload is
   fine with session consistency; Strong inflates RU cost for no benefit.
 - The well-known emulator key is hard-coded as a fallback in
   `cosmosStore.ts`. It's only the emulator key, but committing keys at all
@@ -127,7 +143,7 @@ The repo has ESLint configured with type-aware rules. `npm run lint` from
 - Wide-open `cors()` with a comment claiming "we're inside the VPC."
 - `feature-flags.json` is loaded with `fs.readFileSync` at module load.
 
-The on-stage flow the demo is built for:
+A suggested walkthrough:
 
 1. Run `npm run lint` → see the 27 findings. Triage which are real.
 2. Open the Diagnostics page → see RU and cross-partition counts climb as

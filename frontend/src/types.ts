@@ -76,6 +76,25 @@ export interface QuerySample {
   portalLink?: string;
 }
 
+export interface TrafficResult {
+  callersPerDay: number;
+  sampleCallers: number;
+  businessHours: number;
+  opsRun: number;
+  errors: number;
+  durationMs: number;
+  byOp: Record<string, number>;
+  measuredRu: number;
+  avgRuPerOp: number;
+  avgRuPerCaller: number;
+  crossPartitionOps: number;
+  projectedDailyRu: number;
+  projectedRuPerSecAvg: number;
+  projectedRuPerSecPeak: number;
+  containerRUs: number;
+  exceedsBudget: boolean;
+}
+
 export interface DiagnosticsResponse {
   summary: {
     count: number;
