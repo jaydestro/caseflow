@@ -203,11 +203,7 @@ code scanning must be **available** on the repository for the upload to succeed:
   (included with GitHub Enterprise, or a paid add-on). Enable it under
   **Settings → Code security** (toggle on Advanced Security, then Code scanning).
 
-So the job stays green either way, it first runs a **"Detect code scanning
-availability"** step: if the code scanning API is reachable (HTTP 200, or a
-404 meaning "enabled but no analyses yet") it runs CodeQL; if it returns
-HTTP 403 ("code scanning is not enabled" — a private repo without Advanced
-Security) it **skips** the CodeQL steps so the job still passes.
+So the job stays green either way, it first runs a **"Detect code scanning availability"** step: if the code scanning API is reachable (HTTP 200) it runs CodeQL; if it returns HTTP 403 (not accessible, e.g. private repo without Advanced Security) or HTTP 404 (code scanning not enabled for the repo) it **skips** the CodeQL steps so the job still passes.
 
 Leave GitHub's **default setup** for code scanning **off** — this workflow is the
 "advanced" (workflow-based) setup, and turning on default setup as well would
