@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { api } from '../api';
-import { AzureCompareResponse, BeforeAfterComparison, DiagnosticsResponse, TrafficResult } from '../types';
+import { AzureCompareResponse, BeforeAfterComparison, DiagnosticsResponse, QuerySample, TrafficResult } from '../types';
 import { formatDate } from '../ui';
 
 /** Microsoft Learn references shown next to each metric so students can dig deeper. */
@@ -49,6 +49,7 @@ export function Diagnostics() {
   const [trafficRunning, setTrafficRunning] = useState(false);
   const [traffic, setTraffic] = useState<TrafficResult | null>(null);
   const [trafficError, setTrafficError] = useState<string | null>(null);
+  const [selectedSample, setSelectedSample] = useState<QuerySample | null>(null);
   const [throughputMode, setThroughputMode] = useState<'provisioned' | 'autoscale'>(() => {
     const saved = typeof localStorage !== 'undefined' ? localStorage.getItem('caseflow.throughputMode') : null;
     return saved === 'autoscale' ? 'autoscale' : 'provisioned';
@@ -495,24 +496,50 @@ export function Diagnostics() {
           </div>
 
           <div className="legend">
-            <span className="item">
-              <span className="swatch user" /> <strong>user request</strong> — an operation caused by
-              something you did in the UI (a click or page load)
-            </span>
-            <span className="item">
-              <span className="swatch bg" /> <strong>background</strong> — the cache-warmer timer loop
-              running on its own, not from your click
-            </span>
-            <span className="item">
-              <span className="swatch cp" /> <strong>cross-partition</strong> — a query with no
-              partition-key filter that fanned out to every partition (expensive — usual fix
-              candidate) <DocLink href={DOCS.crossPartition}>docs</DocLink>
-            </span>
-            <span className="item">
-              <span className="tag-pr">point</span> <strong>point read</strong> — a single-item lookup
-              by id + partition key, the cheapest read Cosmos DB offers (~1 RU){' '}
-              <DocLink href={DOCS.pointReads}>docs</DocLink>
-            </span>
+            <div className="legend-group">
+              <span className="legend-title">Source — who triggered it</span>
+              <span className="item">
+                <span className="legend-token">
+                  <span className="badge-src user">user</span>
+                </span>
+                <span>
+                  <strong>user request</strong> — caused by something you did in the UI (a click or
+                  page load).
+                </span>
+              </span>
+              <span className="item">
+                <span className="legend-token">
+                  <span className="badge-src bg">bg</span>
+                </span>
+                <span>
+                  <strong>background</strong> — the cache-warmer timer loop running on its own, not
+                  from your click.
+                </span>
+              </span>
+            </div>
+            <div className="legend-group">
+              <span className="legend-title">Operation — how it read Cosmos DB</span>
+              <span className="item">
+                <span className="legend-token">
+                  <span className="tag-pr">point</span>
+                </span>
+                <span>
+                  <strong>point read</strong> — a single-item lookup by id + partition key, the
+                  cheapest read Cosmos DB offers (~1 RU).{' '}
+                  <DocLink href={DOCS.pointReads}>docs</DocLink>
+                </span>
+              </span>
+              <span className="item">
+                <span className="legend-token">
+                  <span className="tag-cp">cross-partition</span>
+                </span>
+                <span>
+                  <strong>cross-partition</strong> — a query with no partition-key filter that fanned
+                  out to every partition (expensive — the usual fix candidate).{' '}
+                  <DocLink href={DOCS.crossPartition}>docs</DocLink>
+                </span>
+              </span>
+            </div>
           </div>
 
           <p style={{ color: '#6b7280', fontSize: 13, margin: '0 0 12px' }}>
@@ -551,6 +578,9 @@ export function Diagnostics() {
                 {reversed.map((s) => (
                   <tr
                     key={s.id}
+                    className="query-row"
+                    onClick={() => setSelectedSample(s)}
+                    title="Click to see what this operation does"
                     style={
                       s.crossPartition
                         ? { background: '#fff7f7' }
@@ -594,6 +624,7 @@ export function Diagnostics() {
                             href={s.portalLink}
                             target="_blank"
                             rel="noreferrer"
+                            onClick={(e) => e.stopPropagation()}
                             title="Open this request in Azure Log Analytics (±30s window). Requires access to the demo's own Azure subscription."
                             style={{ fontSize: 11, color: '#2563eb', textDecoration: 'none' }}
                           >
@@ -607,6 +638,150 @@ export function Diagnostics() {
               </tbody>
             </table>
           )}
+        </div>
+      </div>
+
+      {selectedSample && (
+        <QueryModal
+          sample={selectedSample}
+          containerRUs={containerRUs}
+          onClose={() => setSelectedSample(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function opLabel(op: string): string {
+  switch (op) {
+    case 'point-read':
+      return 'Point read';
+    case 'upsert':
+      return 'Upsert (write)';
+    case 'query':
+      return 'SQL query';
+    default:
+      return op;
+  }
+}
+
+/** Plain-English explanation of what a captured operation does and why it costs what it does. */
+function explainQuery(s: QuerySample): { summary: string; why: string; doc: string } {
+  if (s.op === 'point-read') {
+    return {
+      summary: 'Fetches a single item directly by its id and partition key — the query engine is never involved.',
+      why: 'This is the cheapest and fastest read Cosmos DB offers (about 1 RU). Always prefer a point read when you already know the id and partition key.',
+      doc: DOCS.pointReads,
+    };
+  }
+  if (s.op === 'upsert') {
+    return {
+      summary: 'Inserts the item if it does not exist yet, or replaces it if it does.',
+      why: 'Write cost scales with the item size and how many properties are indexed. Keeping documents lean and trimming the indexing policy lowers the RU charge.',
+      doc: DOCS.optimizeCost,
+    };
+  }
+  if (s.crossPartition) {
+    return {
+      summary: 'Runs a SQL query with no partition-key filter, so Cosmos DB fans the query out to every physical partition.',
+      why: 'Cross-partition queries are the classic RU cost driver — every partition is charged and the total grows as the container scales out. Add the partition key to the WHERE clause to turn this into a single-partition query.',
+      doc: DOCS.crossPartition,
+    };
+  }
+  return {
+    summary: 'Runs a SQL query scoped to a single partition key, so Cosmos DB only reads one partition.',
+    why: 'Single-partition queries are far cheaper than cross-partition ones because the query engine only touches one partition\u2019s index.',
+    doc: DOCS.query,
+  };
+}
+
+/** Modal that explains what a single captured Cosmos DB operation does. */
+function QueryModal({
+  sample,
+  containerRUs,
+  onClose,
+}: {
+  sample: QuerySample;
+  containerRUs: number;
+  onClose: () => void;
+}) {
+  const info = explainQuery(sample);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <span className={`op-badge op-${sample.op}`}>{opLabel(sample.op)}</span>
+          {sample.crossPartition ? (
+            <span className="tag-cp">cross-partition</span>
+          ) : (
+            <span className="tag-pr">single-partition</span>
+          )}
+          <button className="modal-close" onClick={onClose} aria-label="Close">
+            &times;
+          </button>
+        </div>
+        <div className="modal-body">
+          <p className="modal-summary">{info.summary}</p>
+
+          {sample.query ? (
+            <>
+              <div className="modal-label">Query sent to Cosmos DB</div>
+              <pre className="modal-code">{sample.query}</pre>
+            </>
+          ) : (
+            <>
+              <div className="modal-label">SDK call</div>
+              <pre className="modal-code">
+                {sample.op === 'point-read'
+                  ? 'container.item(id, partitionKey).read()'
+                  : 'container.items.upsert(item)'}
+              </pre>
+            </>
+          )}
+
+          {sample.parameters && sample.parameters.length > 0 ? (
+            <>
+              <div className="modal-label">Parameters</div>
+              <pre className="modal-code">
+                {sample.parameters.map((p) => `${p.name} = ${JSON.stringify(p.value)}`).join('\n')}
+              </pre>
+            </>
+          ) : null}
+
+          {sample.notes ? <p className="modal-note">{sample.notes}</p> : null}
+
+          <div className="modal-stats">
+            <div>
+              <span className="k">RU charge</span>
+              <span className="v">{sample.requestCharge === null ? '\u2014' : sample.requestCharge.toFixed(2)}</span>
+            </div>
+            <div>
+              <span className="k">% of budget</span>
+              <span className="v">{budgetPct(sample.requestCharge, containerRUs)}</span>
+            </div>
+            <div>
+              <span className="k">Duration</span>
+              <span className="v">{sample.durationMs} ms</span>
+            </div>
+            <div>
+              <span className="k">Items returned</span>
+              <span className="v">{sample.itemCount}</span>
+            </div>
+          </div>
+
+          <div className="modal-why">
+            <strong>Why it costs what it does</strong>
+            <p>{info.why}</p>
+            <DocLink href={info.doc}>Microsoft Learn</DocLink>
+          </div>
         </div>
       </div>
     </div>
@@ -925,7 +1100,7 @@ function BeforeAfterPanel({ comparison }: { comparison: BeforeAfterComparison })
             <th>Metric</th>
             <th style={{ textAlign: 'right' }}>Before</th>
             <th style={{ textAlign: 'right' }}>After</th>
-            <th style={{ textAlign: 'right' }}>Δ</th>
+            <th style={{ textAlign: 'right' }} title="Δ (delta) = After − Before, the absolute change">Δ change</th>
             <th style={{ textAlign: 'right' }}>%</th>
           </tr>
         </thead>
@@ -949,6 +1124,13 @@ function BeforeAfterPanel({ comparison }: { comparison: BeforeAfterComparison })
         </tbody>
       </table>
 
+      <p className="table-caption">
+        <span><span className="key">Before</span> / <span className="key">After</span> — the metric before vs. after your fix.</span>
+        <span><span className="key">Δ change</span> = After − Before (the raw difference).</span>
+        <span><span className="key">%</span> — the same change as a percentage.</span>
+        <span><span className="down">Green</span> means it got better (lower RU, fewer cross-partition queries); <span className="up">red</span> means it got worse.</span>
+      </p>
+
       {before.byOp.length > 0 && (
         <>
           <h4 style={{ margin: '16px 0 8px', fontSize: 13 }}>Per-operation RU breakdown</h4>
@@ -958,7 +1140,7 @@ function BeforeAfterPanel({ comparison }: { comparison: BeforeAfterComparison })
                 <th>Operation</th>
                 <th style={{ textAlign: 'right' }}>Before avg RU</th>
                 <th style={{ textAlign: 'right' }}>After avg RU</th>
-                <th style={{ textAlign: 'right' }}>Δ</th>
+                <th style={{ textAlign: 'right' }} title="Δ (delta) = After − Before, the absolute change">Δ change</th>
               </tr>
             </thead>
             <tbody>
