@@ -159,7 +159,7 @@ export class CaseService {
     // document writes in Cosmos are atomic at the partition level, so two
     // concurrent PATCHes on the same case are safe.
     const c = await this.repos.getCase(caseId);
-    if (!c || c.tenantId != tenantId) throw notFound('case not found');
+    if (!c || c.tenantId !== tenantId) throw notFound('case not found');
     const ts = now();
     const prevStatus = c.status;
     if (dto.status) c.status = dto.status;
