@@ -5,37 +5,22 @@ import { telemetry } from '../lib/telemetry';
 import { isAzureMonitorConfigured, queryCosmosUsage } from '../lib/azureMonitor';
 import { generateTraffic } from '../services/trafficGenerator';
 import {
-  buildLogsLink,
+  cosmosHotPartitionChartLink,
   cosmosInsightsLink,
   cosmosMetricsChartLink,
-  cosmosMetricsLink,
-  kqlForSample,
-  kqlOpBreakdown,
-  kqlRuTimechart,
-  windowIso,
-  workspaceLink,
+  cosmosRuByOperationChartLink,
+  cosmosThrottledRequestsChartLink,
 } from '../lib/portalLinks';
 import { logger } from '../lib/logger';
 
 export const diagnosticsRouter = Router();
 
 diagnosticsRouter.get('/queries', (_req, res) => {
-  const samples = telemetry.list();
-  const portalEnabled = isAzureMonitorConfigured() && Boolean(config.azure.logAnalyticsWorkspaceName);
-  // Per-sample deep link: open Log Analytics scoped to a ±30s window around
-  // the SDK timestamp so a viewer can match RequestCharge/Duration row-for-row.
-  const enriched = samples.map((s) => {
-    if (!portalEnabled) return s;
-    const at = new Date(s.at);
-    const start = new Date(at.getTime() - 30_000).toISOString();
-    const end = new Date(at.getTime() + 30_000).toISOString();
-    return { ...s, portalLink: buildLogsLink(kqlForSample({ atIso: s.at }), start, end) };
-  });
   res.json({
     summary: telemetry.summary(),
-    samples: enriched,
+    samples: telemetry.list(),
     containerRUs: config.containerRUs,
-    portalEnabled,
+    portalEnabled: isAzureMonitorConfigured(),
   });
 });
 
@@ -123,28 +108,23 @@ diagnosticsRouter.get('/azure-compare', async (req, res, next) => {
       ? Math.max(0, Math.round((Date.now() - Date.parse(azure.latestRecordAt)) / 1000))
       : null;
 
-    // Build Azure Portal deep links so the viewer can open the exact same
-    // KQL in the Logs blade (and see the rendered timechart) for any claim
-    // we make in the panel.
-    const { startIso, endIso } = windowIso(windowMinutes);
+    // Azure Portal *graph* deep links. These open Metrics Explorer / Cosmos
+    // Insights charts that render immediately from platform metrics (no log
+    // ingestion lag) and visually expose the problem — RU spend, which
+    // operation type burns it, hot partitions, and throttling (429s).
     const portalLinks = {
-      workspace: workspaceLink(),
-      metrics: cosmosMetricsLink(),
-      metricsChart: cosmosMetricsChartLink(),
       insights: cosmosInsightsLink(),
-      ruTimechart: buildLogsLink(kqlRuTimechart(windowMinutes), startIso, endIso),
-      opBreakdown: buildLogsLink(kqlOpBreakdown(windowMinutes), startIso, endIso),
+      ruConsumption: cosmosMetricsChartLink(),
+      ruByOperation: cosmosRuByOperationChartLink(),
+      hotPartition: cosmosHotPartitionChartLink(),
+      throttled: cosmosThrottledRequestsChartLink(),
     };
-    const azureByOp = azure.byOp.map((row) => ({
-      ...row,
-      portalLink: buildLogsLink(kqlRuTimechart(windowMinutes, row.op), startIso, endIso),
-    }));
 
     res.json({
       enabled: true,
       windowMinutes,
       local,
-      azure: { ...azure, byOp: azureByOp },
+      azure,
       lagSeconds,
       workspaceId: config.azure.logAnalyticsWorkspaceId,
       cosmosAccount: config.azure.cosmosAccount,
