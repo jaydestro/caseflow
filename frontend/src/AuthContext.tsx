@@ -23,11 +23,9 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const [username, setUsername] = useState<string | null>(() => localStorage.getItem(USER_KEY));
   const [authed, setAuthed] = useState<boolean>(
-    () => localStorage.getItem(AUTH_KEY) === 'true',
-  );
-  const [username, setUsername] = useState<string | null>(
-    () => localStorage.getItem(USER_KEY),
+    () => localStorage.getItem(AUTH_KEY) === 'true' && localStorage.getItem(USER_KEY) !== null,
   );
 
   const login = (user: string, password: string) => {
