@@ -74,7 +74,8 @@ diagnosticsRouter.post('/traffic', async (req, res, next) => {
 // ---- Baseline snapshot for before/after comparison -----------------------
 
 diagnosticsRouter.post('/snapshot', (req, res) => {
-  const label = typeof req.body?.label === 'string' ? req.body.label : undefined;
+  const body = req.body as { label?: unknown };
+  const label = typeof body.label === 'string' ? body.label : undefined;
   const snap = telemetry.takeSnapshot(label);
   res.json(snap);
 });

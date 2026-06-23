@@ -4,7 +4,8 @@ export type EntityType =
   | 'customer'
   | 'case'
   | 'comment'
-  | 'statusEvent';
+  | 'statusEvent'
+  | 'auditLog';
 
 export interface BaseEntity {
   id: string;
@@ -64,10 +65,17 @@ export interface StatusEvent extends BaseEntity {
   note?: string;
 }
 
+export interface AuditLog extends BaseEntity {
+  type: 'auditLog';
+  action: string;
+  caseId: string;
+}
+
 export type AnyEntity =
   | Tenant
   | Agent
   | Customer
   | SupportCase
   | CaseComment
-  | StatusEvent;
+  | StatusEvent
+  | AuditLog;

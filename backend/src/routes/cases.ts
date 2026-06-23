@@ -61,7 +61,8 @@ casesRouter.post('/', async (req, res, next) => {
 
 casesRouter.patch('/:id', async (req, res, next) => {
   try {
-    const tenantId = String(req.query.tenantId ?? req.body.tenantId ?? '');
+    const body = req.body as { tenantId?: unknown };
+    const tenantId = String(req.query.tenantId ?? body.tenantId ?? '');
     if (!tenantId) throw badRequest('tenantId required');
     const dto = patchCaseDto.parse(req.body);
     const s = await svc();
@@ -73,7 +74,8 @@ casesRouter.patch('/:id', async (req, res, next) => {
 
 casesRouter.post('/:id/comments', async (req, res, next) => {
   try {
-    const tenantId = String(req.query.tenantId ?? req.body.tenantId ?? '');
+    const body = req.body as { tenantId?: unknown };
+    const tenantId = String(req.query.tenantId ?? body.tenantId ?? '');
     if (!tenantId) throw badRequest('tenantId required');
     const dto = addCommentDto.parse(req.body);
     const s = await svc();

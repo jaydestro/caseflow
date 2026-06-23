@@ -1,4 +1,8 @@
-import { Container, CosmosClient } from '@azure/cosmos';
+import {
+  Container,
+  CosmosClient,
+  SqlQuerySpec as CosmosSqlQuerySpec,
+} from '@azure/cosmos';
 import { DefaultAzureCredential } from '@azure/identity';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -82,15 +86,16 @@ export class CosmosEntityStore implements EntityStore {
         crossPartition: false,
       });
       return item;
-    } catch (err: any) {
-      if (err?.code === 404) {
+    } catch (err) {
+      const e = err as { code?: number; requestCharge?: number };
+      if (e.code === 404) {
         telemetry.record({
           op: 'point-read',
           store: 'cosmos',
           query: `point read id=${id}`,
           itemCount: 0,
           durationMs: Date.now() - start,
-          requestCharge: err?.requestCharge ?? 0,
+          requestCharge: e.requestCharge ?? 0,
           crossPartition: false,
           notes: '404',
         });
@@ -122,12 +127,15 @@ export class CosmosEntityStore implements EntityStore {
     const sql = spec.query ?? '';
     const crossPartition = !/\bc\.id\s*=/.test(sql);
 
-    const iter = this.container.items.query<T>(spec as any, { maxItemCount: -1 });
+    const iter = this.container.items.query<T>(
+      spec as CosmosSqlQuerySpec,
+      { maxItemCount: -1 },
+    );
     const out: T[] = [];
     let charge = 0;
     while (iter.hasMoreResults()) {
       const page = await iter.fetchNext();
-      if (page.resources) out.push(...page.resources);
+      if (page.resources?.length) out.push(...page.resources);
       charge += page.requestCharge ?? 0;
     }
     telemetry.record({
