@@ -160,22 +160,22 @@ See `docs/architecture.md`, `docs/access-patterns.md`, and
 ## CI/CD and deploying to Azure
 
 The repo ships a GitHub Actions workflow at
-[`.github/workflows/ci-cd.yml`](.github/workflows/ci-cd.yml) that builds, tests,
-and (on merges to `main`) deploys CaseFlow to Azure using the
-[Azure Developer CLI (`azd`)](https://learn.microsoft.com/azure/developer/azure-developer-cli/).
+[`.github/workflows/ci-cd.yml`](.github/workflows/ci-cd.yml) that builds and
+tests CaseFlow. It is **continuous integration only — it does not deploy.** No
+Azure identity is wired to this repository; deployment is left to whoever runs
+the project, against **their own** Azure subscription and tenant (see
+[Deploying to your own Azure](#deploying-to-your-own-azure) below).
 
 ### What runs, and when
 
 The workflow triggers on **`push` only** (`branches: ['**']`). A push to any
-branch runs CI; a push to `main` (a PR merge) also deploys. There is
-deliberately **no `pull_request` trigger** — for a commit on a branch with an
-open PR it would fire a second time on the same SHA, double-running `test` and
-`security`.
+branch runs CI. There is deliberately **no `pull_request` trigger** — for a
+commit on a branch with an open PR it would fire a second time on the same SHA,
+double-running `test` and `security`.
 
-| Trigger | `test` | `security` | `deploy` |
-| ------- | :----: | :--------: | :------: |
-| Push to any feature branch | ✅ | ✅ | — |
-| Push to `main` (a PR merge) | ✅ | ✅ | ✅ |
+| Trigger | `test` | `security` |
+| ------- | :----: | :--------: |
+| Push to any branch | ✅ | ✅ |
 
 - **`test`** — installs dependencies, starts the **Cosmos DB vNext-preview
   emulator** in a container, then runs `npm run build`, `npm run lint -w backend`,
@@ -183,10 +183,6 @@ open PR it would fire a second time on the same SHA, double-running `test` and
   fallback, so a real Cosmos endpoint is required even in CI.)
 - **`security`** — runs `npm audit` (fails on high/critical runtime vulns) and
   CodeQL static analysis over the TypeScript sources (skipped if code scanning is not enabled/accessible for the repo).
-- **`deploy`** — gated on both `test` and `security` passing, and only on a push
-  to `main`. It logs in to Azure with OIDC, runs `azd provision` then
-  `azd deploy`, and finishes with a smoke test that probes the live
-  `"$WEB_BASE_URL"/api/health` endpoint until it returns HTTP 200.
 
 ### Enabling code scanning (CodeQL alerts)
 
@@ -211,12 +207,58 @@ create a conflicting second CodeQL configuration. Alerts surface under
 **Security → Code scanning** after the `security` job completes on a pushed
 branch.
 
-### How the deploy authenticates (OIDC, no stored secrets)
+## Deploying to your own Azure
 
-The deploy job uses **federated (OIDC) credentials** — there are no long-lived
-secrets in the repo. A dedicated Azure **deploy identity** trusts GitHub's OIDC
-issuer for this repository, so each run requests a short-lived token scoped to
-the workflow. The job reads these GitHub Actions **variables** (not secrets):
+CaseFlow deploys with the [Azure Developer CLI (`azd`)](https://learn.microsoft.com/azure/developer/azure-developer-cli/)
+to **Azure Container Apps**. The infrastructure is Bicep under [`infra/`](infra/),
+wired up by [`azure.yaml`](azure.yaml). Because nothing in this repo is bound to
+a particular Azure account, anyone (on any tenant) can stand up their own copy.
+Cosmos data-plane RBAC is handled automatically during provisioning —
+[infra/modules/cosmos.bicep](infra/modules/cosmos.bicep) grants the app's
+managed identity the Cosmos "Data Contributor" role, and grants the deploying
+principal the same role for local debugging, so there's no separate RBAC script
+to run.
+
+### Option A — deploy locally with `azd` (simplest)
+
+From a clone, with [`azd` installed](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd):
+
+```bash
+azd auth login        # sign into YOUR Azure account / tenant
+azd up                # provision infra + build images in ACR + deploy
+```
+
+`azd up` provisions the Bicep, builds the container images **in the cloud**
+(Azure Container Registry remote build — you don't need Docker locally), and
+deploys both services. It prompts you to pick a subscription and region the
+first time, storing them in a local `azd` environment. Afterwards:
+
+```bash
+azd deploy            # re-deploy code changes (re-runs build + push)
+azd up                # re-run if you also changed infra under infra/
+azd down              # tear everything back down
+```
+
+### Option B — re-enable automated deploys in your own fork (GitHub Actions + OIDC)
+
+The `deploy` job was removed from the workflow, but the bootstrap scripts are
+still here. To wire CI deploys to **your** Azure, sign into all three CLIs as
+your own account, then run the bootstrap from a clone:
+
+```bash
+azd auth login && az login && gh auth login   # all to YOUR account
+
+# macOS / Linux
+./scripts/setup-cicd.sh
+
+# Windows (PowerShell)
+.\scripts\setup-cicd.ps1
+```
+
+Both scripts wrap `azd pipeline config --provider github --auth-type federated`.
+That creates an Entra **deploy identity**, registers an OIDC federated
+credential (so there are no long-lived secrets), assigns the subscription RBAC
+needed to provision, and sets these GitHub Actions **variables** (not secrets):
 
 | Variable | Purpose |
 | -------- | ------- |
@@ -226,49 +268,18 @@ the workflow. The job reads these GitHub Actions **variables** (not secrets):
 | `AZURE_ENV_NAME` | `azd` environment name (`caseflow`) |
 | `AZURE_LOCATION` | Azure region (`eastus2`) |
 
-### One-time setup
-
-The pipeline wiring is scripted so you don't have to run the steps by hand.
-From a clone with `azd`, the Azure CLI, and the GitHub CLI installed and signed
-in (`azd auth login`, `az login`, `gh auth login`), run one of:
-
-```bash
-# macOS / Linux
-./scripts/setup-cicd.sh
-
-# Windows (PowerShell)
-.\scripts\setup-cicd.ps1
-```
-
-Both scripts wrap `azd pipeline config --provider github --auth-type federated`.
-That creates the deploy identity, registers the OIDC federated credentials for
-the `main` branch (and PRs), assigns the subscription RBAC needed to provision,
-and populates the five GitHub Actions variables above. The scripts accept
-`--env-name`, `--location`, and `--subscription-id` (PowerShell: `-EnvName`,
-`-Location`, `-SubscriptionId`) and default to the `caseflow` environment in
-`eastus2`. After they finish, every merge to `main` provisions and deploys
-automatically.
+The scripts accept `--env-name`, `--location`, and `--subscription-id`
+(PowerShell: `-EnvName`, `-Location`, `-SubscriptionId`) and default to the
+`caseflow` environment in `eastus2`. After that, re-add a `deploy` job to
+[`.github/workflows/ci-cd.yml`](.github/workflows/ci-cd.yml) — gated on `test`
+and `security` — that runs `azd auth login --federated-credential-provider github`,
+then `azd provision` and `azd deploy`. The git history of this file has a
+reference deploy job you can copy.
 
 > [!IMPORTANT]
-> GitHub OIDC deploys from **personal-account repositories** do **not** carry a
-> GitHub Enterprise `enterprise` claim. If you run `setup-cicd` while signed
-> into the Microsoft tenant (`72f988bf-86f1-41af-91ab-2d7cd011db47`) or another
-> tenant that enforces that claim, the `Provision & deploy` job will fail with
-> `AADSTS7002381`. In that case, sign into a personal or otherwise
-> non-restricted Azure tenant and re-run the setup script so it refreshes
-> `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, and `AZURE_SUBSCRIPTION_ID`.
-
-There are two distinct kinds of access, handled in two distinct places:
-
-- **CI/CD identity (control-plane RBAC) + OIDC** — set up once by
-  `setup-cicd`, above. The deploy identity must exist with subscription RBAC
-  *before* the pipeline can run, so this is an unavoidable one-time bootstrap.
-- **Cosmos data-plane RBAC (the app's and your access to documents)** — handled
-  automatically during `azd provision`. [infra/modules/cosmos.bicep](infra/modules/cosmos.bicep)
-  grants the app's managed identity the Cosmos "Data Contributor" role, and also
-  grants the deploying principal (`principalId`, injected by `azd`) the same role
-  for local debugging. No separate RBAC script is needed.
-
-> The infrastructure that `azd` provisions lives in `infra/` (Bicep) and is
-> wired up by `azure.yaml`. Deploys are intentionally limited to `main`, so
-> feature branches and PRs only ever run the `test` and `security` jobs.
+> GitHub OIDC tokens from a **personal-account repository** do **not** carry a
+> GitHub Enterprise `enterprise` claim. If your target tenant enforces that
+> claim (for example the Microsoft corporate tenant,
+> `72f988bf-86f1-41af-91ab-2d7cd011db47`), `azd auth login` in CI fails with
+> `AADSTS7002381`. Deploy from a **personal or otherwise non-restricted** Azure
+> tenant, or just use **Option A** locally.
