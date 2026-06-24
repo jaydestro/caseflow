@@ -60,8 +60,11 @@ if [[ -z "$REMOTE" ]]; then
   echo "Error: no 'origin' git remote found. Run this from the repo root."
   exit 1
 fi
-OWNER="$(sed -E 's#^.*github\\.com[:/]([^/]+)/[^/]+(\\.git)?$#\\1#' <<<"$REMOTE")"
-OWNER_TYPE="$(gh api "users/$OWNER" --jq .type 2>/dev/null || true)"
+OWNER="$(sed -nE 's#^.*github\.com[:/]([^/]+)/[^/]+(\.git)?$#\1#p' <<<"$REMOTE")"
+OWNER_TYPE=""
+if [[ -n "$OWNER" ]]; then
+  OWNER_TYPE="$(gh api "users/$OWNER" --jq .type 2>/dev/null || true)"
+fi
 CURRENT_TENANT_ID="$(az account show --query tenantId -o tsv 2>/dev/null || true)"
 echo "    Repo remote   : $REMOTE"
 echo "    Environment   : $ENV_NAME"
