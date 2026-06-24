@@ -249,6 +249,15 @@ and populates the five GitHub Actions variables above. The scripts accept
 `eastus2`. After they finish, every merge to `main` provisions and deploys
 automatically.
 
+> [!IMPORTANT]
+> GitHub OIDC deploys from **personal-account repositories** do **not** carry a
+> GitHub Enterprise `enterprise` claim. If you run `setup-cicd` while signed
+> into the Microsoft tenant (`72f988bf-86f1-41af-91ab-2d7cd011db47`) or another
+> tenant that enforces that claim, the `Provision & deploy` job will fail with
+> `AADSTS7002381`. In that case, sign into a personal or otherwise
+> non-restricted Azure tenant and re-run the setup script so it refreshes
+> `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, and `AZURE_SUBSCRIPTION_ID`.
+
 There are two distinct kinds of access, handled in two distinct places:
 
 - **CI/CD identity (control-plane RBAC) + OIDC** — set up once by

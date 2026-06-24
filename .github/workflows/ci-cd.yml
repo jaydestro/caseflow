@@ -196,6 +196,25 @@ jobs:
       - name: Install azd
         uses: Azure/setup-azd@v2
 
+      - name: Validate Azure tenant supports this repo's OIDC tokens
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const microsoftTenantId = "72f988bf-86f1-41af-91ab-2d7cd011db47";
+            if (process.env.AZURE_TENANT_ID !== microsoftTenantId) return;
+
+            const { data: owner } = await github.rest.users.getByUsername({
+              username: context.repo.owner,
+            });
+            if (owner.type !== "User") return;
+
+            core.setFailed(
+              `AZURE_TENANT_ID is ${microsoftTenantId}, but ${context.repo.owner}/${context.repo.repo} is owned by a personal GitHub account. ` +
+                "GitHub OIDC tokens from personal-account repositories have an empty enterprise claim, so this tenant rejects Azure login with AADSTS7002381. " +
+                "Re-run scripts/setup-cicd.sh or scripts/setup-cicd.ps1 while logged into a personal or otherwise non-restricted Azure tenant, " +
+                "then refresh the AZURE_CLIENT_ID, AZURE_TENANT_ID, and AZURE_SUBSCRIPTION_ID Actions variables."
+            );
+
       - name: Log in to Azure (federated OIDC)
         run: |
           azd auth login `
@@ -203,7 +222,6 @@ jobs:
             --federated-credential-provider "github" `
             --tenant-id "$Env:AZURE_TENANT_ID"
         shell: pwsh
-
       - name: Provision infrastructure
         run: azd provision --no-prompt
         shell: pwsh
