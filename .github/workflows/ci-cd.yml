@@ -2,11 +2,25 @@ name: CI/CD
 
 # Feature branches & PRs  -> run tests (against the Cosmos DB emulator).
 # Push to main (i.e. a PR merge) -> run tests, then provision + deploy via azd.
+#
+# One-time setup to enable the deploy job (creates an Entra app registration,
+# OIDC federated credential, subscription RBAC, and the repo variables below):
+#   azd pipeline config --provider github
+# It populates these GitHub Actions *variables* (Settings > Secrets and
+# variables > Actions > Variables) that the deploy job reads:
+#   AZURE_CLIENT_ID        - client id of the deploy identity
+#   AZURE_TENANT_ID        - <your-tenant-id>
+#   AZURE_SUBSCRIPTION_ID  - <your-subscription-id>
+#   AZURE_ENV_NAME         - caseflow
+#   AZURE_LOCATION         - eastus2
+#
+# Trigger on `push` only. A `push` to any branch already covers feature-branch
+# CI, and a `push` to main (a PR merge) drives the deploy. Adding a
+# `pull_request` trigger would double-run test + security on every commit that
+# belongs to an open PR (same SHA, two events), so it is intentionally omitted.
 on:
   push:
     branches: ['**']
-  pull_request:
-    branches: [main]
 
 # Cancel superseded runs on the same ref (e.g. fast successive pushes).
 concurrency:
@@ -18,7 +32,7 @@ permissions:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # TEST — runs on every branch push and every PR.
+  # TEST — runs on every branch push.
   # Spins up the Cosmos DB vNext emulator and runs the backend test suite
   # against it (the data layer has no in-memory fallback).
   # ---------------------------------------------------------------------------
@@ -38,9 +52,14 @@ jobs:
 
       - name: Start Cosmos DB emulator (vNext preview)
         run: |
+          # The vNext emulator defaults to PLAIN HTTP on 8081. Start it in HTTPS
+          # mode so it matches the readiness probe and COSMOS_ENDPOINT below
+          # (both https). The self-signed cert is accepted via curl -k and
+          # NODE_TLS_REJECT_UNAUTHORIZED=0.
           docker run -d --name cosmos-emulator \
             -p 8081:8081 -p 1234:1234 \
-            mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-preview
+            mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-preview \
+            --protocol https
 
       - name: Wait for emulator to be ready
         run: |
@@ -74,7 +93,7 @@ jobs:
         run: docker logs cosmos-emulator || true
 
   # ---------------------------------------------------------------------------
-  # SECURITY — dependency + static analysis on every branch push and PR.
+  # SECURITY — dependency + static analysis on every branch push.
   # Fails on known high/critical vulnerabilities in runtime dependencies and
   # runs CodeQL static analysis over the TypeScript sources.
   # ---------------------------------------------------------------------------
@@ -99,15 +118,50 @@ jobs:
       - name: Audit runtime dependencies (fail on high/critical)
         run: npm audit --omit=dev --audit-level=high
 
+      - name: Detect code scanning availability
+        id: code_scanning
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Probe the code scanning API to decide whether CodeQL can upload.
+            //   200 -> code scanning API available -> run CodeQL
+            //   403 -> code scanning not accessible (e.g. private repo without Advanced Security) -> skip CodeQL
+            //   404 -> code scanning not enabled for this repo -> skip CodeQL
+            try {
+              await github.request("GET /repos/{owner}/{repo}/code-scanning/alerts", {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                per_page: 1,
+              });
+              core.setOutput("enabled", "true");
+            } catch (error) {
+              if (error.status === 403) {
+                core.notice(
+                  `Skipping CodeQL because code scanning is not enabled or not accessible (HTTP ${error.status}).`,
+                );
+                core.setOutput("enabled", "false");
+              } else if (error.status === 404) {
+                core.notice(
+                  "Skipping CodeQL because code scanning is not enabled for this repository (HTTP 404).",
+                );
+                core.setOutput("enabled", "false");
+              } else {
+                throw error;
+              }
+            }
+
       - name: Initialize CodeQL
+        if: steps.code_scanning.outputs.enabled == 'true'
         uses: github/codeql-action/init@v3
         with:
           languages: javascript-typescript
 
       - name: Build for CodeQL
+        if: steps.code_scanning.outputs.enabled == 'true'
         run: npm run build
 
       - name: CodeQL analysis
+        if: steps.code_scanning.outputs.enabled == 'true'
         uses: github/codeql-action/analyze@v3
 
   # ---------------------------------------------------------------------------
@@ -119,7 +173,14 @@ jobs:
     needs: [test, security]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    environment: production
+    # NOTE: No `environment:` gate. A GitHub environment changes the OIDC token
+    # subject to `repo:<owner>/<repo>:environment:<name>`, which does NOT match
+    # the federated credential `azd pipeline config` creates (subject
+    # `repo:<owner>/<repo>:ref:refs/heads/main`). To add a protection gate later,
+    # also add a matching federated credential, e.g.:
+    #   az ad app federated-credential create --id <AZURE_CLIENT_ID> --parameters '{
+    #     "name":"caseflow-env-production","issuer":"https://token.actions.githubusercontent.com",
+    #     "subject":"repo:<owner>/<repo>:environment:production","audiences":["api://AzureADTokenExchange"]}'
     permissions:
       contents: read
       id-token: write # required for OIDC federated login

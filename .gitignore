@@ -8,5 +8,8 @@ dist
 coverage
 .DS_Store
 
+# TypeScript incremental build cache
+*.tsbuildinfo
+
 # Cosmos DB Agent Kit — installed globally via `npx skills add`, never vendored here
 .agents/

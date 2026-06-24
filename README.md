@@ -156,3 +156,110 @@ A suggested walkthrough:
 
 See `docs/architecture.md`, `docs/access-patterns.md`, and
 `docs/known-tradeoffs.md` for the v1 team's own framing of the design.
+
+## CI/CD and deploying to Azure
+
+The repo ships a GitHub Actions workflow at
+[`.github/workflows/ci-cd.yml`](.github/workflows/ci-cd.yml) that builds, tests,
+and (on merges to `main`) deploys CaseFlow to Azure using the
+[Azure Developer CLI (`azd`)](https://learn.microsoft.com/azure/developer/azure-developer-cli/).
+
+### What runs, and when
+
+The workflow triggers on **`push` only** (`branches: ['**']`). A push to any
+branch runs CI; a push to `main` (a PR merge) also deploys. There is
+deliberately **no `pull_request` trigger** — for a commit on a branch with an
+open PR it would fire a second time on the same SHA, double-running `test` and
+`security`.
+
+| Trigger | `test` | `security` | `deploy` |
+| ------- | :----: | :--------: | :------: |
+| Push to any feature branch | ✅ | ✅ | — |
+| Push to `main` (a PR merge) | ✅ | ✅ | ✅ |
+
+- **`test`** — installs dependencies, starts the **Cosmos DB vNext-preview
+  emulator** in a container, then runs `npm run build`, `npm run lint -w backend`,
+  and `npm test` (the backend test suite) against the emulator. (The data layer has no in-memory
+  fallback, so a real Cosmos endpoint is required even in CI.)
+- **`security`** — runs `npm audit` (fails on high/critical runtime vulns) and
+  CodeQL static analysis over the TypeScript sources (skipped if code scanning is not enabled/accessible for the repo).
+- **`deploy`** — gated on both `test` and `security` passing, and only on a push
+  to `main`. It logs in to Azure with OIDC, runs `azd provision` then
+  `azd deploy`, and finishes with a smoke test that probes the live
+  `"$WEB_BASE_URL"/api/health` endpoint until it returns HTTP 200.
+
+### Enabling code scanning (CodeQL alerts)
+
+The `security` job runs CodeQL and uploads its results to GitHub's
+**Code scanning** feature — the workflow declares `security-events: write`
+in [.github/workflows/ci-cd.yml](.github/workflows/ci-cd.yml), which is the
+permission that authorizes the upload. No extra workflow setup is needed, but
+code scanning must be **available** on the repository for the upload to succeed:
+
+- **Public repos** — CodeQL code scanning is free; nothing to enable. The first
+  time the `security` job runs, results appear under the repository's
+  **Security → Code scanning** tab.
+- **Private repos** — code scanning requires **GitHub Advanced Security**
+  (included with GitHub Enterprise, or a paid add-on). Enable it under
+  **Settings → Code security** (toggle on Advanced Security, then Code scanning).
+
+So the job stays green either way, it first runs a **"Detect code scanning availability"** step: if the code scanning API is reachable (HTTP 200) it runs CodeQL; if it returns HTTP 403 (not accessible, e.g. private repo without Advanced Security) or HTTP 404 (code scanning not enabled for the repo) it **skips** the CodeQL steps so the job still passes.
+
+Leave GitHub's **default setup** for code scanning **off** — this workflow is the
+"advanced" (workflow-based) setup, and turning on default setup as well would
+create a conflicting second CodeQL configuration. Alerts surface under
+**Security → Code scanning** after the `security` job completes on a pushed
+branch.
+
+### How the deploy authenticates (OIDC, no stored secrets)
+
+The deploy job uses **federated (OIDC) credentials** — there are no long-lived
+secrets in the repo. A dedicated Azure **deploy identity** trusts GitHub's OIDC
+issuer for this repository, so each run requests a short-lived token scoped to
+the workflow. The job reads these GitHub Actions **variables** (not secrets):
+
+| Variable | Purpose |
+| -------- | ------- |
+| `AZURE_CLIENT_ID` | Client id of the deploy identity |
+| `AZURE_TENANT_ID` | Entra tenant id |
+| `AZURE_SUBSCRIPTION_ID` | Target subscription |
+| `AZURE_ENV_NAME` | `azd` environment name (`caseflow`) |
+| `AZURE_LOCATION` | Azure region (`eastus2`) |
+
+### One-time setup
+
+The pipeline wiring is scripted so you don't have to run the steps by hand.
+From a clone with `azd`, the Azure CLI, and the GitHub CLI installed and signed
+in (`azd auth login`, `az login`, `gh auth login`), run one of:
+
+```bash
+# macOS / Linux
+./scripts/setup-cicd.sh
+
+# Windows (PowerShell)
+.\scripts\setup-cicd.ps1
+```
+
+Both scripts wrap `azd pipeline config --provider github --auth-type federated`.
+That creates the deploy identity, registers the OIDC federated credentials for
+the `main` branch (and PRs), assigns the subscription RBAC needed to provision,
+and populates the five GitHub Actions variables above. The scripts accept
+`--env-name`, `--location`, and `--subscription-id` (PowerShell: `-EnvName`,
+`-Location`, `-SubscriptionId`) and default to the `caseflow` environment in
+`eastus2`. After they finish, every merge to `main` provisions and deploys
+automatically.
+
+There are two distinct kinds of access, handled in two distinct places:
+
+- **CI/CD identity (control-plane RBAC) + OIDC** — set up once by
+  `setup-cicd`, above. The deploy identity must exist with subscription RBAC
+  *before* the pipeline can run, so this is an unavoidable one-time bootstrap.
+- **Cosmos data-plane RBAC (the app's and your access to documents)** — handled
+  automatically during `azd provision`. [infra/modules/cosmos.bicep](infra/modules/cosmos.bicep)
+  grants the app's managed identity the Cosmos "Data Contributor" role, and also
+  grants the deploying principal (`principalId`, injected by `azd`) the same role
+  for local debugging. No separate RBAC script is needed.
+
+> The infrastructure that `azd` provisions lives in `infra/` (Bicep) and is
+> wired up by `azure.yaml`. Deploys are intentionally limited to `main`, so
+> feature branches and PRs only ever run the `test` and `security` jobs.

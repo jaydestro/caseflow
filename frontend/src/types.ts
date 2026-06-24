@@ -72,8 +72,6 @@ export interface QuerySample {
   crossPartition: boolean;
   notes?: string;
   source?: 'user' | 'background';
-  /** Azure Portal Logs blade deep link, ±30s around `at`. */
-  portalLink?: string;
 }
 
 export interface TrafficResult {
@@ -121,8 +119,6 @@ export interface OpAggregate {
   maxRu: number;
   avgDurationMs?: number;
   p95DurationMs?: number;
-  /** Pre-built Logs blade URL — KQL filtered to this op + window. */
-  portalLink?: string;
 }
 
 export interface AzureCompareResponse {
@@ -140,13 +136,13 @@ export interface AzureCompareResponse {
   lagSeconds?: number | null;
   workspaceId?: string;
   cosmosAccount?: string;
+  /** Azure Portal *graph* deep links (Metrics Explorer / Cosmos Insights). */
   portalLinks?: {
-    workspace: string;
-    metrics: string;
-    metricsChart: string;
     insights: string;
-    ruTimechart: string;
-    opBreakdown: string;
+    ruConsumption: string;
+    ruByOperation: string;
+    hotPartition: string;
+    throttled: string;
   };
   note: string;
 }

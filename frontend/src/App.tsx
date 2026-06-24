@@ -1,19 +1,37 @@
 import { NavLink, Route, Routes } from 'react-router-dom';
+import { AuthProvider, useAuth } from './AuthContext';
 import { TenantProvider, useTenant } from './TenantContext';
 import { Dashboard } from './pages/Dashboard';
 import { CaseDetail } from './pages/CaseDetail';
 import { NewCase } from './pages/NewCase';
 import { Diagnostics } from './pages/Diagnostics';
 import { AgentWorkload } from './pages/AgentWorkload';
+import { Login } from './pages/Login';
 import { TenantLogo } from './tenantLogos';
+
+function UserMenu() {
+  const { username, logout } = useAuth();
+  return (
+    <span className="usermenu">
+      <span className="usermenu-name">{username}</span>
+      <button className="btn secondary" onClick={logout}>
+        Sign out
+      </button>
+    </span>
+  );
+}
 
 function TenantSwitcher() {
   const { tenants, current, setCurrentId, loading } = useTenant();
-  if (loading) return <span style={{ color: '#9ca3af', fontSize: 13 }}>loading…</span>;
+  if (loading) return <span className="tenant-loading">loading…</span>;
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+    <span className="tenant-switcher">
       <TenantLogo tenantId={current?.id} size={22} alt={current?.name} />
-      <select value={current?.id ?? ''} onChange={(e) => setCurrentId(e.target.value)}>
+      <select
+        aria-label="Select tenant"
+        value={current?.id ?? ''}
+        onChange={(e) => setCurrentId(e.target.value)}
+      >
         {tenants.map((t) => (
           <option key={t.id} value={t.id}>
             {t.name}
@@ -30,6 +48,7 @@ function Shell() {
       <div className="topbar">
         <div className="brand">CaseFlow</div>
         <TenantSwitcher />
+        <UserMenu />
       </div>
       <div className="layout">
         <nav className="sidebar">
@@ -58,10 +77,20 @@ function Shell() {
   );
 }
 
-export function App() {
+function Gate() {
+  const { authed } = useAuth();
+  if (!authed) return <Login />;
   return (
     <TenantProvider>
       <Shell />
     </TenantProvider>
+  );
+}
+
+export function App() {
+  return (
+    <AuthProvider>
+      <Gate />
+    </AuthProvider>
   );
 }

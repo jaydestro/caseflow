@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { api } from '../api';
-import { AzureCompareResponse, BeforeAfterComparison, DiagnosticsResponse, QuerySample, TrafficResult } from '../types';
+import { AzureCompareResponse, BeforeAfterComparison, DiagnosticsResponse, QuerySample, TelemetrySnapshot, TrafficResult } from '../types';
 import { formatDate } from '../ui';
 
 /** Microsoft Learn references shown next to each metric so students can dig deeper. */
@@ -43,6 +43,7 @@ export function Diagnostics() {
   const [compareLoading, setCompareLoading] = useState(false);
   const [windowMinutes, setWindowMinutes] = useState(15);
   const [snapshot, setSnapshot] = useState<BeforeAfterComparison | null>(null);
+  const [baseline, setBaseline] = useState<TelemetrySnapshot | null>(null);
   const [snapshotExists, setSnapshotExists] = useState(false);
   const [snapshotLoading, setSnapshotLoading] = useState(false);
   const [callersPerDay, setCallersPerDay] = useState(10000);
@@ -80,7 +81,10 @@ export function Diagnostics() {
 
   useEffect(() => {
     refresh();
-    api.getSnapshot().then((s) => setSnapshotExists(!!s));
+    api.getSnapshot().then((s) => {
+      setSnapshotExists(!!s);
+      setBaseline(s);
+    });
     if (!autoRefresh) return;
     const t = setInterval(refresh, 2000);
     return () => clearInterval(t);
@@ -89,7 +93,8 @@ export function Diagnostics() {
   async function takeSnapshot() {
     setSnapshotLoading(true);
     try {
-      await api.takeSnapshot('before');
+      const snap = await api.takeSnapshot('before');
+      setBaseline(snap);
       setSnapshotExists(true);
       setSnapshot(null);
     } finally {
@@ -111,6 +116,7 @@ export function Diagnostics() {
     await api.clearSnapshot();
     setSnapshotExists(false);
     setSnapshot(null);
+    setBaseline(null);
   }
 
   async function clear() {
@@ -254,9 +260,37 @@ export function Diagnostics() {
               {summary.count === 0 && ' Generate some traffic first so there is something to snapshot.'}
             </p>
           ) : !snapshot ? (
-            <p style={{ color: '#6b7280', fontSize: 13 }}>
-              Baseline saved. Apply your fix, generate traffic, then click <strong>Compare now</strong>.
-            </p>
+            <>
+              <p style={{ color: '#6b7280', fontSize: 13, marginTop: 0 }}>
+                Baseline captured. This is your <strong>“before”</strong> starting point. Apply your fix,
+                generate traffic, then click <strong>Compare now</strong> to see the delta.
+              </p>
+              {baseline ? (
+                <>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'baseline',
+                      gap: 8,
+                      margin: '0 0 12px',
+                      fontSize: 13,
+                      fontWeight: 600,
+                      color: '#7c3aed',
+                    }}
+                  >
+                    <span>⏱ Measuring…</span>
+                    <span style={{ fontSize: 18 }}>
+                      <ElapsedTimer since={baseline.takenAt} live />
+                    </span>
+                    <span style={{ fontWeight: 400, color: '#9ca3af' }}>
+                      measuring new traffic since baseline — re-run the same load, then{' '}
+                      <strong>Compare now</strong> freezes the window
+                    </span>
+                  </div>
+                  <BaselineSummary baseline={baseline} />
+                </>
+              ) : null}
+            </>
           ) : (
             <BeforeAfterPanel comparison={snapshot} />
           )}
@@ -571,7 +605,6 @@ export function Diagnostics() {
                   <th>RU</th>
                   <th>% budget</th>
                   <th>Partition</th>
-                  {showAzure && <th>Azure</th>}
                 </tr>
               </thead>
               <tbody>
@@ -617,22 +650,6 @@ export function Diagnostics() {
                         <span className="tag-pr">point</span>
                       )}
                     </td>
-                    {showAzure && (
-                      <td>
-                        {s.portalLink ? (
-                          <a
-                            href={s.portalLink}
-                            target="_blank"
-                            rel="noreferrer"
-                            onClick={(e) => e.stopPropagation()}
-                            title="Open this request in Azure Log Analytics (±30s window). Requires access to the demo's own Azure subscription."
-                            style={{ fontSize: 11, color: '#2563eb', textDecoration: 'none' }}
-                          >
-                            ↗ Azure
-                          </a>
-                        ) : null}
-                      </td>
-                    )}
                   </tr>
                 ))}
               </tbody>
@@ -890,54 +907,64 @@ function AzureComparePanel({
             ) : null}
 
             {compare.portalLinks ? (
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '0 0 12px' }}>
-                <a
-                  className="btn"
-                  href={compare.portalLinks.insights}
-                  target="_blank"
-                  rel="noreferrer"
-                  title="Cosmos DB Insights — pre-built dashboards with throughput, latency & availability charts (always populated)"
-                  style={{ background: '#2563eb' }}
-                >
-                  📊 Cosmos Insights (charts)
-                </a>
-                <a
-                  className="btn"
-                  href={compare.portalLinks.metricsChart}
-                  target="_blank"
-                  rel="noreferrer"
-                  title="Metrics Explorer pre-loaded with Total Request Units + Total Requests over the last hour"
-                  style={{ background: '#7c3aed' }}
-                >
-                  📈 RU Metrics Chart
-                </a>
-                <a
-                  className="btn secondary"
-                  href={compare.portalLinks.ruTimechart}
-                  target="_blank"
-                  rel="noreferrer"
-                  title="Open Log Analytics with a RU/s timechart KQL (may be empty if ingestion is lagging)"
-                >
-                  ↗ KQL timechart
-                </a>
-                <a
-                  className="btn secondary"
-                  href={compare.portalLinks.opBreakdown}
-                  target="_blank"
-                  rel="noreferrer"
-                  title="Open Log Analytics with the per-operation breakdown KQL"
-                >
-                  ↗ Op breakdown KQL
-                </a>
-                <a
-                  className="btn secondary"
-                  href={compare.portalLinks.metrics}
-                  target="_blank"
-                  rel="noreferrer"
-                  title="Open the Cosmos account's Metrics blade (all available metrics)"
-                >
-                  ↗ Metrics blade
-                </a>
+              <div style={{ margin: '0 0 12px' }}>
+                <p style={{ color: '#6b7280', fontSize: 12, margin: '0 0 6px' }}>
+                  Open the live Azure graphs — these render straight from platform metrics (no log
+                  ingestion lag), so the chart is populated the moment it opens and visually exposes the
+                  problem:
+                </p>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <a
+                    className="btn"
+                    href={compare.portalLinks.insights}
+                    target="_blank"
+                    rel="noreferrer"
+                    title="Cosmos DB Insights — curated dashboards: throughput, requests, throttling, latency & availability"
+                    style={{ background: '#2563eb' }}
+                  >
+                    📊 Cosmos Insights
+                  </a>
+                  <a
+                    className="btn"
+                    href={compare.portalLinks.ruConsumption}
+                    target="_blank"
+                    rel="noreferrer"
+                    title="Metrics Explorer: Total Request Units + Total Requests over the last hour"
+                    style={{ background: '#7c3aed' }}
+                  >
+                    📈 RU consumption
+                  </a>
+                  <a
+                    className="btn"
+                    href={compare.portalLinks.ruByOperation}
+                    target="_blank"
+                    rel="noreferrer"
+                    title="RU split by operation type — the cross-partition Query series towering over Read/Upsert is the proof"
+                    style={{ background: '#7c3aed' }}
+                  >
+                    🔍 RU by operation
+                  </a>
+                  <a
+                    className="btn"
+                    href={compare.portalLinks.hotPartition}
+                    target="_blank"
+                    rel="noreferrer"
+                    title="Normalized RU consumption (max %) per partition key range — one partition pinned near 100% reveals a hot partition"
+                    style={{ background: '#b45309' }}
+                  >
+                    🔥 Hot partitions
+                  </a>
+                  <a
+                    className="btn"
+                    href={compare.portalLinks.throttled}
+                    target="_blank"
+                    rel="noreferrer"
+                    title="Requests by status code — a rising 429 series means the workload is being throttled"
+                    style={{ background: '#b91c1c' }}
+                  >
+                    🚦 Throttled (429s)
+                  </a>
+                </div>
               </div>
             ) : null}
 
@@ -955,7 +982,6 @@ function AzureComparePanel({
                     <th>Δ RU</th>
                     <th>Local avg RU</th>
                     <th>Azure avg RU</th>
-                    <th>Chart</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -971,19 +997,6 @@ function AzureComparePanel({
                       </td>
                       <td>{row.localAvgRu.toFixed(2)}</td>
                       <td>{row.azureAvgRu.toFixed(2)}</td>
-                      <td>
-                        {row.azurePortalLink ? (
-                          <a
-                            href={row.azurePortalLink}
-                            target="_blank"
-                            rel="noreferrer"
-                            style={{ fontSize: 11, color: '#2563eb', textDecoration: 'none' }}
-                            title={`Open RU timechart in Azure for ${row.op}`}
-                          >
-                            ↗ chart
-                          </a>
-                        ) : null}
-                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -1004,7 +1017,6 @@ interface MergedOpRow {
   azureTotalRu: number;
   localAvgRu: number;
   azureAvgRu: number;
-  azurePortalLink?: string;
 }
 
 /**
@@ -1035,7 +1047,6 @@ function mergeOps(c: AzureCompareResponse | null): MergedOpRow[] {
       existing.azureCount = o.count;
       existing.azureTotalRu = o.totalRu;
       existing.azureAvgRu = o.avgRu;
-      existing.azurePortalLink = o.portalLink;
     } else {
       map.set(k, {
         op: o.op,
@@ -1045,7 +1056,6 @@ function mergeOps(c: AzureCompareResponse | null): MergedOpRow[] {
         azureTotalRu: o.totalRu,
         localAvgRu: 0,
         azureAvgRu: o.avgRu,
-        azurePortalLink: o.portalLink,
       });
     }
   }
@@ -1067,6 +1077,105 @@ function ruDeltaColor(local: number, azure: number): string | undefined {
   if (d <= 0.05) return '#059669';
   if (d <= 0.2) return '#d97706';
   return '#b91c1c';
+}
+
+/* ---------- Captured baseline summary (shown before you click Compare) ---------- */
+/** Format a millisecond duration as M:SS (or H:MM:SS past an hour). */
+function formatElapsed(ms: number): string {
+  const totalSec = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const sec = totalSec % 60;
+  const ss = String(sec).padStart(2, '0');
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
+}
+
+/**
+ * Shows elapsed time from `since`. When `live` is set it ticks every second;
+ * otherwise (a frozen window) it shows `until - since`.
+ */
+function ElapsedTimer({ since, until, live }: { since: string; until?: string; live?: boolean }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!live) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [live]);
+  const start = new Date(since).getTime();
+  const end = until ? new Date(until).getTime() : now;
+  return <span style={{ fontVariantNumeric: 'tabular-nums' }}>{formatElapsed(end - start)}</span>;
+}
+
+function BaselineSummary({ baseline }: { baseline: TelemetrySnapshot }) {
+  const s = baseline.summary;
+  return (
+    <div>
+      <p style={{ color: '#9ca3af', fontSize: 12, margin: '0 0 8px' }}>
+        Baseline <strong>“{baseline.label}”</strong> · {baseline.sampleCount} operations · captured{' '}
+        {formatDate(baseline.takenAt)}
+      </p>
+      <div className="diag-summary">
+        <div className="stat">
+          <div className="label">Operations</div>
+          <div className="value">{s.count}</div>
+          <div className="sub">in the baseline window</div>
+        </div>
+        <div className="stat">
+          <div className="label">Total RU</div>
+          <div className="value">{s.totalRu.toFixed(2)}</div>
+          <div className="sub">sum of request charge</div>
+        </div>
+        <div className="stat">
+          <div className="label">Avg RU/op</div>
+          <div className="value">{s.avgRu.toFixed(2)}</div>
+          <div className="sub">mean cost per operation</div>
+        </div>
+        <div className="stat">
+          <div className="label">Max RU</div>
+          <div className="value">{s.maxRu.toFixed(2)}</div>
+          <div className="sub">most expensive single op</div>
+        </div>
+        <div className="stat">
+          <div className="label">Cross-partition</div>
+          <div className="value" style={{ color: s.crossPartitionCount > 0 ? '#b91c1c' : undefined }}>
+            {s.crossPartitionCount}
+          </div>
+          <div className="sub">fan-out queries</div>
+        </div>
+        <div className="stat">
+          <div className="label">Avg latency</div>
+          <div className="value">{s.avgDurationMs.toFixed(0)} ms</div>
+          <div className="sub">mean duration</div>
+        </div>
+      </div>
+      {baseline.byOp.length > 0 ? (
+        <table className="queries" style={{ marginTop: 12 }}>
+          <thead>
+            <tr>
+              <th>Operation</th>
+              <th>Count</th>
+              <th>Total RU</th>
+              <th>Avg RU</th>
+              <th>Max RU</th>
+              <th>Avg ms</th>
+            </tr>
+          </thead>
+          <tbody>
+            {baseline.byOp.map((o) => (
+              <tr key={o.op}>
+                <td><code>{o.op}</code></td>
+                <td>{o.count}</td>
+                <td>{o.totalRu.toFixed(2)}</td>
+                <td>{o.avgRu.toFixed(2)}</td>
+                <td>{o.maxRu.toFixed(2)}</td>
+                <td>{o.avgDurationMs.toFixed(0)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : null}
+    </div>
+  );
 }
 
 /* ---------- Before / After comparison panel ---------- */
@@ -1092,7 +1201,11 @@ function BeforeAfterPanel({ comparison }: { comparison: BeforeAfterComparison })
       <p style={{ fontSize: 12, color: '#9ca3af', margin: '0 0 12px' }}>
         Baseline: <strong>{before.label || 'before'}</strong> ({before.sampleCount} ops, {new Date(before.takenAt).toLocaleTimeString()})
         &nbsp;→&nbsp;
-        Current: <strong>{after.sampleCount} ops</strong>
+        After: <strong>{after.sampleCount} ops since baseline</strong>
+        &nbsp;·&nbsp;
+        <span style={{ color: '#7c3aed', fontWeight: 600 }}>
+          ⏱ window <ElapsedTimer since={before.takenAt} until={after.takenAt} />
+        </span>
       </p>
       <table className="data-table" style={{ fontSize: 13 }}>
         <thead>

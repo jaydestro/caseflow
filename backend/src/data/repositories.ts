@@ -9,7 +9,7 @@ import {
   SupportCase,
   Tenant,
 } from '../models/entities';
-import { EntityStore, SqlQuerySpec } from './store';
+import { EntityStore } from './store';
 
 export interface ListCasesOptions {
   tenantId: string;

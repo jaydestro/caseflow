@@ -1,6 +1,7 @@
 import { v4 as uuid } from 'uuid';
 import { Repositories, ListCasesOptions } from '../data/repositories';
 import { badRequest, notFound } from '../lib/errors';
+import { logger } from '../lib/logger';
 import {
   AddCommentDto,
   CreateCaseDto,
@@ -9,6 +10,7 @@ import {
 } from '../models/dtos';
 import {
   AnyEntity,
+  AuditLog,
   CaseComment,
   CasePriority,
   CaseStatus,
@@ -48,7 +50,7 @@ export class CaseService {
     if (!c) throw notFound('case not found');
     // Tenant filtering happens here in the service layer.
     if (c.tenantId !== tenantId) throw notFound('case not found');
-    console.log('[getCaseDetail]', describe(c));
+    logger.debug({ case: describe(c) }, '[getCaseDetail]');
     const [comments, statusEvents] = await Promise.all([
       this.repos.listCommentsForCase(id),
       this.repos.listStatusEventsForCase(id),
@@ -109,10 +111,10 @@ export class CaseService {
       updatedAt: ts,
     };
     await this.repos.upsertStatusEvent(ev);
-    // Fire off an audit record so we have a trail of who created what. We
+    // Fire off an audit record so we have a trail of what was created. We
     // don't need to wait for it — the create endpoint should return as soon
     // as the case is durably written.
-    const audit = {
+    const audit: AuditLog = {
       id: uuid(),
       type: 'auditLog',
       tenantId: dto.tenantId,
@@ -120,7 +122,7 @@ export class CaseService {
       caseId: id,
       createdAt: ts,
       updatedAt: ts,
-    } as any;
+    };
     void this.repos.upsertAny(audit);
     return c;
   }
@@ -159,14 +161,14 @@ export class CaseService {
     // document writes in Cosmos are atomic at the partition level, so two
     // concurrent PATCHes on the same case are safe.
     const c = await this.repos.getCase(caseId);
-    if (!c || c.tenantId != tenantId) throw notFound('case not found');
+    if (!c || c.tenantId !== tenantId) throw notFound('case not found');
     const ts = now();
     const prevStatus = c.status;
     if (dto.status) c.status = dto.status;
     if (dto.priority) c.priority = dto.priority;
     if (dto.assignedAgentId !== undefined) c.assignedAgentId = dto.assignedAgentId;
     c.updatedAt = ts;
-    console.log('[updateCase] writing back', caseId, 'status=', c.status);
+    logger.debug({ caseId, status: c.status }, '[updateCase] writing back');
     await this.repos.upsertCase(c);
     if (dto.status && dto.status !== prevStatus) {
       const ev: StatusEvent = {
