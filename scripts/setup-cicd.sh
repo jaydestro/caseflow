@@ -60,10 +60,21 @@ if [[ -z "$REMOTE" ]]; then
   echo "Error: no 'origin' git remote found. Run this from the repo root."
   exit 1
 fi
+OWNER="$(sed -E 's#^.*github\\.com[:/]([^/]+)/[^/]+(\\.git)?$#\\1#' <<<"$REMOTE")"
+OWNER_TYPE="$(gh api "users/$OWNER" --jq .type 2>/dev/null || true)"
+CURRENT_TENANT_ID="$(az account show --query tenantId -o tsv 2>/dev/null || true)"
 echo "    Repo remote   : $REMOTE"
 echo "    Environment   : $ENV_NAME"
 echo "    Location      : $LOCATION"
 echo ""
+
+if [[ "$CURRENT_TENANT_ID" == "72f988bf-86f1-41af-91ab-2d7cd011db47" && "$OWNER_TYPE" == "User" ]]; then
+  echo "Error: Azure tenant '$CURRENT_TENANT_ID' requires a non-empty GitHub enterprise OIDC claim."
+  echo "       Personal-account repositories like '$OWNER' emit an empty enterprise claim, so deploys fail"
+  echo "       with AADSTS7002381. Re-run this script while logged into a personal or otherwise"
+  echo "       non-restricted Azure tenant, then refresh AZURE_CLIENT_ID/AZURE_TENANT_ID/AZURE_SUBSCRIPTION_ID."
+  exit 1
+fi
 
 # ---- select / create the azd environment ----
 echo "==> Selecting azd environment '$ENV_NAME'..."

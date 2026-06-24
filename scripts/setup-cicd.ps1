@@ -60,10 +60,17 @@ Assert-Command "gh"  "Install the GitHub CLI: https://cli.github.com/"
 # Confirm we're inside a git repo with a GitHub remote.
 $remote = (git remote get-url origin 2>$null)
 if (-not $remote) { throw "No 'origin' git remote found. Run this from the repo root." }
+$owner = if ($remote -match 'github\.com[:/]([^/]+)/[^/]+(?:\.git)?$') { $Matches[1] } else { "" }
+$ownerType = if ($owner) { gh api "users/$owner" --jq .type 2>$null } else { $null }
+$currentTenantId = az account show --query tenantId -o tsv 2>$null
 Write-Host "    Repo remote   : $remote"
 Write-Host "    Environment   : $EnvName"
 Write-Host "    Location      : $Location"
 Write-Host ""
+
+if ($currentTenantId -eq "72f988bf-86f1-41af-91ab-2d7cd011db47" -and $ownerType -eq "User") {
+    throw "Azure tenant '$currentTenantId' requires a non-empty GitHub enterprise OIDC claim. Personal-account repositories like '$owner' emit an empty enterprise claim, so deploys fail with AADSTS7002381. Re-run this script while logged into a personal or otherwise non-restricted Azure tenant, then refresh AZURE_CLIENT_ID/AZURE_TENANT_ID/AZURE_SUBSCRIPTION_ID."
+}
 
 # Select / create the azd environment so pipeline config targets the right one.
 Write-Host "==> Selecting azd environment '$EnvName'..."
