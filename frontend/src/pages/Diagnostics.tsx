@@ -265,7 +265,30 @@ export function Diagnostics() {
                 Baseline captured. This is your <strong>“before”</strong> starting point. Apply your fix,
                 generate traffic, then click <strong>Compare now</strong> to see the delta.
               </p>
-              {baseline ? <BaselineSummary baseline={baseline} /> : null}
+              {baseline ? (
+                <>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'baseline',
+                      gap: 8,
+                      margin: '0 0 12px',
+                      fontSize: 13,
+                      fontWeight: 600,
+                      color: '#7c3aed',
+                    }}
+                  >
+                    <span>⏱ Measuring…</span>
+                    <span style={{ fontSize: 18 }}>
+                      <ElapsedTimer since={baseline.takenAt} live />
+                    </span>
+                    <span style={{ fontWeight: 400, color: '#9ca3af' }}>
+                      since baseline — <strong>Compare now</strong> freezes the window
+                    </span>
+                  </div>
+                  <BaselineSummary baseline={baseline} />
+                </>
+              ) : null}
             </>
           ) : (
             <BeforeAfterPanel comparison={snapshot} />
@@ -1056,6 +1079,32 @@ function ruDeltaColor(local: number, azure: number): string | undefined {
 }
 
 /* ---------- Captured baseline summary (shown before you click Compare) ---------- */
+/** Format a millisecond duration as M:SS (or H:MM:SS past an hour). */
+function formatElapsed(ms: number): string {
+  const totalSec = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const sec = totalSec % 60;
+  const ss = String(sec).padStart(2, '0');
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
+}
+
+/**
+ * Shows elapsed time from `since`. When `live` is set it ticks every second;
+ * otherwise (a frozen window) it shows `until - since`.
+ */
+function ElapsedTimer({ since, until, live }: { since: string; until?: string; live?: boolean }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!live) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [live]);
+  const start = new Date(since).getTime();
+  const end = until ? new Date(until).getTime() : now;
+  return <span style={{ fontVariantNumeric: 'tabular-nums' }}>{formatElapsed(end - start)}</span>;
+}
+
 function BaselineSummary({ baseline }: { baseline: TelemetrySnapshot }) {
   const s = baseline.summary;
   return (
@@ -1152,6 +1201,10 @@ function BeforeAfterPanel({ comparison }: { comparison: BeforeAfterComparison })
         Baseline: <strong>{before.label || 'before'}</strong> ({before.sampleCount} ops, {new Date(before.takenAt).toLocaleTimeString()})
         &nbsp;→&nbsp;
         Current: <strong>{after.sampleCount} ops</strong>
+        &nbsp;·&nbsp;
+        <span style={{ color: '#7c3aed', fontWeight: 600 }}>
+          ⏱ window <ElapsedTimer since={before.takenAt} until={after.takenAt} />
+        </span>
       </p>
       <table className="data-table" style={{ fontSize: 13 }}>
         <thead>
