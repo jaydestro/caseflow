@@ -1,23 +1,48 @@
 name: CI/CD
 
-# Feature branches & PRs  -> run tests (against the Cosmos DB emulator).
-# Push to main (i.e. a PR merge) -> run tests, then provision + deploy via azd.
+# Continuous integration only. Every push runs `test` (build + lint + the
+# backend suite against the Cosmos DB emulator) and `security` (npm audit +
+# CodeQL). This workflow does NOT deploy — there is no Azure identity wired to
+# this repo. Deployment is left to whoever runs the project, against their own
+# Azure subscription and tenant.
 #
-# One-time setup to enable the deploy job (creates an Entra app registration,
-# OIDC federated credential, subscription RBAC, and the repo variables below):
-#   azd pipeline config --provider github
-# It populates these GitHub Actions *variables* (Settings > Secrets and
-# variables > Actions > Variables) that the deploy job reads:
-#   AZURE_CLIENT_ID        - client id of the deploy identity
-#   AZURE_TENANT_ID        - <your-tenant-id>
-#   AZURE_SUBSCRIPTION_ID  - <your-subscription-id>
-#   AZURE_ENV_NAME         - caseflow
-#   AZURE_LOCATION         - eastus2
+# ---------------------------------------------------------------------------
+# Deploying CaseFlow to YOUR OWN Azure account
+# ---------------------------------------------------------------------------
+# CaseFlow deploys with the Azure Developer CLI (azd) to Azure Container Apps;
+# the infra is Bicep under `infra/`, wired up by `azure.yaml`. Two options:
 #
-# Trigger on `push` only. A `push` to any branch already covers feature-branch
-# CI, and a `push` to main (a PR merge) drives the deploy. Adding a
-# `pull_request` trigger would double-run test + security on every commit that
-# belongs to an open PR (same SHA, two events), so it is intentionally omitted.
+# A) Local one-shot deploy (simplest). From a clone with azd installed:
+#      azd auth login        # sign into YOUR Azure account / tenant
+#      azd up                # provision infra + build images in ACR + deploy
+#    Re-deploy code changes later:  azd deploy   (or `azd up` after infra edits)
+#    Tear everything down:          azd down
+#    Images build in-cloud (ACR remote build), so Docker isn't needed locally.
+#
+# B) Re-enable automated deploys in YOUR fork (GitHub Actions + OIDC):
+#    1. Sign in to all three CLIs as YOUR account:
+#         azd auth login   &&   az login   &&   gh auth login
+#    2. From the repo root, run the bootstrap (wraps
+#       `azd pipeline config --provider github --auth-type federated`):
+#         ./scripts/setup-cicd.sh      # macOS / Linux
+#         .\scripts\setup-cicd.ps1     # Windows (PowerShell)
+#       It creates an Entra app registration + OIDC federated credential,
+#       assigns subscription RBAC, and sets these GitHub Actions *variables*:
+#         AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID,
+#         AZURE_ENV_NAME (caseflow), AZURE_LOCATION (eastus2)
+#    3. Add a deploy job to this file, gated on `test` + `security`, that runs
+#       `azd auth login --federated-credential-provider github ...` then
+#       `azd provision` and `azd deploy`. (See this repo's git history for a
+#       reference deploy job that was removed.)
+#
+# NOTE: GitHub OIDC tokens from a PERSONAL-account repo carry an empty
+# `enterprise` claim, so tenants that require it (e.g. the Microsoft corporate
+# tenant) reject `azd auth login` with AADSTS7002381. Use a personal /
+# non-restricted Azure tenant for option (B), or just use option (A) locally.
+#
+# Trigger on `push` only — covers feature-branch CI. No `pull_request` trigger,
+# which would double-run test + security on the same SHA for commits that
+# belong to an open PR.
 on:
   push:
     branches: ['**']
@@ -163,93 +188,3 @@ jobs:
       - name: CodeQL analysis
         if: steps.code_scanning.outputs.enabled == 'true'
         uses: github/codeql-action/analyze@v3
-
-  # ---------------------------------------------------------------------------
-  # DEPLOY — only when code lands on main (a PR merge). Requires `test` AND
-  # `security` to pass. Uses azd with OIDC (federated) auth — no stored secrets.
-  # ---------------------------------------------------------------------------
-  deploy:
-    name: Provision & deploy
-    needs: [test, security]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    # NOTE: No `environment:` gate. A GitHub environment changes the OIDC token
-    # subject to `repo:<owner>/<repo>:environment:<name>`, which does NOT match
-    # the federated credential `azd pipeline config` creates (subject
-    # `repo:<owner>/<repo>:ref:refs/heads/main`). To add a protection gate later,
-    # also add a matching federated credential, e.g.:
-    #   az ad app federated-credential create --id <AZURE_CLIENT_ID> --parameters '{
-    #     "name":"caseflow-env-production","issuer":"https://token.actions.githubusercontent.com",
-    #     "subject":"repo:<owner>/<repo>:environment:production","audiences":["api://AzureADTokenExchange"]}'
-    permissions:
-      contents: read
-      id-token: write # required for OIDC federated login
-    env:
-      AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
-      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
-      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-      AZURE_ENV_NAME: ${{ vars.AZURE_ENV_NAME }}
-      AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install azd
-        uses: Azure/setup-azd@v2
-
-      - name: Validate Azure tenant supports this repo's OIDC tokens
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const microsoftTenantId = "72f988bf-86f1-41af-91ab-2d7cd011db47";
-            if (process.env.AZURE_TENANT_ID !== microsoftTenantId) return;
-
-            const { data: owner } = await github.rest.users.getByUsername({
-              username: context.repo.owner,
-            });
-            if (owner.type !== "User") return;
-
-            core.setFailed(
-              `AZURE_TENANT_ID is ${microsoftTenantId}, but ${context.repo.owner}/${context.repo.repo} is owned by a personal GitHub account. ` +
-                "GitHub OIDC tokens from personal-account repositories have an empty enterprise claim, so this tenant rejects Azure login with AADSTS7002381. " +
-                "Re-run scripts/setup-cicd.sh or scripts/setup-cicd.ps1 while logged into a personal or otherwise non-restricted Azure tenant, " +
-                "then refresh the AZURE_CLIENT_ID, AZURE_TENANT_ID, and AZURE_SUBSCRIPTION_ID Actions variables."
-            );
-
-      - name: Log in to Azure (federated OIDC)
-        run: |
-          azd auth login `
-            --client-id "$Env:AZURE_CLIENT_ID" `
-            --federated-credential-provider "github" `
-            --tenant-id "$Env:AZURE_TENANT_ID"
-        shell: pwsh
-      - name: Provision infrastructure
-        run: azd provision --no-prompt
-        shell: pwsh
-
-      - name: Deploy services
-        run: azd deploy --no-prompt
-        shell: pwsh
-
-      - name: Smoke test (verify the live app is healthy)
-        shell: pwsh
-        run: |
-          $line = azd env get-values | Select-String '^WEB_BASE_URL='
-          if (-not $line) { Write-Error 'WEB_BASE_URL not found in azd outputs.'; exit 1 }
-          $url = ($line.Line -split '=', 2)[1].Trim().Trim('"')
-          $health = "$url/api/health"
-          Write-Host "Probing $health"
-          for ($i = 1; $i -le 20; $i++) {
-            try {
-              $resp = Invoke-WebRequest -Uri $health -UseBasicParsing -TimeoutSec 10
-              if ($resp.StatusCode -eq 200 -and $resp.Content -match 'ok') {
-                Write-Host "Deployment healthy: $($resp.Content)"
-                exit 0
-              }
-              Write-Host "Attempt $i/20: HTTP $($resp.StatusCode)"
-            } catch {
-              Write-Host "Attempt $i/20: $($_.Exception.Message)"
-            }
-            Start-Sleep -Seconds 15
-          }
-          Write-Error "Smoke test failed: $health did not return healthy in time."
-          exit 1
