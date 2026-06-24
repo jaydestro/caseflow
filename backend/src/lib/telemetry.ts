@@ -50,7 +50,11 @@ class Telemetry {
   }
 
   summary() {
-    if (this.buf.length === 0) {
+    return this.summarizeSamples(this.buf);
+  }
+
+  private summarizeSamples(samples: QuerySample[]) {
+    if (samples.length === 0) {
       return {
         count: 0,
         totalRu: 0,
@@ -72,7 +76,7 @@ class Telemetry {
     let backgroundRu = 0;
     let userCount = 0;
     let backgroundCount = 0;
-    for (const s of this.buf) {
+    for (const s of samples) {
       const ru = s.requestCharge ?? 0;
       totalRu += ru;
       if (ru > maxRu) maxRu = ru;
@@ -87,11 +91,11 @@ class Telemetry {
       }
     }
     return {
-      count: this.buf.length,
+      count: samples.length,
       totalRu: round(totalRu),
-      avgRu: round(totalRu / this.buf.length),
+      avgRu: round(totalRu / samples.length),
       maxRu: round(maxRu),
-      avgDurationMs: round(totalMs / this.buf.length),
+      avgDurationMs: round(totalMs / samples.length),
       crossPartitionCount: cp,
       userRu: round(userRu),
       backgroundRu: round(backgroundRu),
@@ -108,14 +112,20 @@ class Telemetry {
   // ---- Baseline snapshot for before/after comparison ----------------------
 
   private _snapshot: TelemetrySnapshot | null = null;
+  // Wall-clock mark (epoch ms) of when the baseline was taken. Everything
+  // recorded AFTER this is the "after" window, so re-sampling post-change is
+  // compared cleanly instead of being diluted by the before-traffic still in
+  // the ring buffer.
+  private _snapshotAt: number | null = null;
 
   /** Freeze the current summary + byOp breakdown as the "before" baseline. */
   takeSnapshot(label?: string): TelemetrySnapshot {
     const summary = this.summary();
     const byOp = this.summarizeWindowByOp(this.buf);
+    this._snapshotAt = Date.now();
     this._snapshot = {
       label: label ?? 'baseline',
-      takenAt: new Date().toISOString(),
+      takenAt: new Date(this._snapshotAt).toISOString(),
       sampleCount: this.buf.length,
       summary,
       byOp,
@@ -129,19 +139,27 @@ class Telemetry {
 
   clearSnapshot(): void {
     this._snapshot = null;
+    this._snapshotAt = null;
   }
 
-  /** Build a before/after delta from the saved snapshot vs current state. */
+  /**
+   * Build a before/after delta from the saved snapshot vs the operations
+   * recorded SINCE the snapshot was taken (the "after" window). This makes
+   * "capture before → change code → re-sample → compare" an apples-to-apples
+   * comparison instead of mixing the before-traffic into the after numbers.
+   */
   compareToSnapshot(): BeforeAfterComparison | null {
     if (!this._snapshot) return null;
-    const after = this.summary();
-    const afterByOp = this.summarizeWindowByOp(this.buf);
+    const cutoff = this._snapshotAt ?? 0;
+    const afterSamples = this.buf.filter((s) => Date.parse(s.at) > cutoff);
+    const after = this.summarizeSamples(afterSamples);
+    const afterByOp = this.summarizeWindowByOp(afterSamples);
     return {
       before: this._snapshot,
       after: {
-        label: 'current',
+        label: 'after (since baseline)',
         takenAt: new Date().toISOString(),
-        sampleCount: this.buf.length,
+        sampleCount: afterSamples.length,
         summary: after,
         byOp: afterByOp,
       },

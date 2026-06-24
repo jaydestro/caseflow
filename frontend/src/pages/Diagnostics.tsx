@@ -283,7 +283,8 @@ export function Diagnostics() {
                       <ElapsedTimer since={baseline.takenAt} live />
                     </span>
                     <span style={{ fontWeight: 400, color: '#9ca3af' }}>
-                      since baseline — <strong>Compare now</strong> freezes the window
+                      measuring new traffic since baseline — re-run the same load, then{' '}
+                      <strong>Compare now</strong> freezes the window
                     </span>
                   </div>
                   <BaselineSummary baseline={baseline} />
@@ -1200,7 +1201,7 @@ function BeforeAfterPanel({ comparison }: { comparison: BeforeAfterComparison })
       <p style={{ fontSize: 12, color: '#9ca3af', margin: '0 0 12px' }}>
         Baseline: <strong>{before.label || 'before'}</strong> ({before.sampleCount} ops, {new Date(before.takenAt).toLocaleTimeString()})
         &nbsp;→&nbsp;
-        Current: <strong>{after.sampleCount} ops</strong>
+        After: <strong>{after.sampleCount} ops since baseline</strong>
         &nbsp;·&nbsp;
         <span style={{ color: '#7c3aed', fontWeight: 600 }}>
           ⏱ window <ElapsedTimer since={before.takenAt} until={after.takenAt} />
