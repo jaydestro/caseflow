@@ -57,14 +57,23 @@ export class CosmosEntityStore implements EntityStore {
   }
 
   async init(): Promise<void> {
-    const { database } = await this.client.databases.createIfNotExists({
-      id: config.cosmos.database,
-    });
-    const { container } = await database.containers.createIfNotExists({
-      id: config.cosmos.container,
-      partitionKey: { paths: ['/id'] },
-    });
-    this.container = container;
+    if (config.cosmos.useEntra) {
+      // Entra data-plane roles cannot provision databases or containers.
+      const database = this.client.database(config.cosmos.database);
+      await database.read();
+      const container = database.container(config.cosmos.container);
+      await container.read();
+      this.container = container;
+    } else {
+      const { database } = await this.client.databases.createIfNotExists({
+        id: config.cosmos.database,
+      });
+      const { container } = await database.containers.createIfNotExists({
+        id: config.cosmos.container,
+        partitionKey: { paths: ['/id'] },
+      });
+      this.container = container;
+    }
     logger.info(
       { database: config.cosmos.database, container: config.cosmos.container },
       'Cosmos container ready',

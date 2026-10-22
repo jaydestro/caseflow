@@ -1,0 +1,33 @@
+{
+  "name": "CaseFlow",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:1-22-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/azure-cli:1": {
+      "installBicep": true
+    }
+  },
+  "remoteUser": "node",
+  "mounts": [
+    "source=${devcontainerId}-node_modules,target=${containerWorkspaceFolder}/node_modules,type=volume"
+  ],
+  "postCreateCommand": "sudo chown node:node node_modules && npm ci",
+  "forwardPorts": [4000, 5173],
+  "portsAttributes": {
+    "4000": {
+      "label": "CaseFlow API",
+      "onAutoForward": "silent"
+    },
+    "5173": {
+      "label": "CaseFlow Web",
+      "onAutoForward": "notify"
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "ms-azuretools.vscode-bicep"
+      ]
+    }
+  }
+}

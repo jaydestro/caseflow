@@ -1,5 +1,12 @@
 # CaseFlow — an educational Azure Cosmos DB sample
 
+[![CI](https://github.com/jaydestro/caseflow/actions/workflows/ci-cd.yml/badge.svg?branch=main)](https://github.com/jaydestro/caseflow/actions/workflows/ci-cd.yml)
+[![Node.js 20+](https://img.shields.io/badge/Node.js-20%2B-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Azure Cosmos DB](https://img.shields.io/badge/Azure-Cosmos_DB-0078D4)](https://learn.microsoft.com/azure/cosmos-db/)
+
+[![Open in Dev Container](https://img.shields.io/badge/Dev_Container-Open_in_VS_Code-007ACC?style=for-the-badge&logo=docker&logoColor=white)](https://vscode.dev/redirect?url=vscode://ms-vscode-remote.remote-containers/cloneInVolume?url=https://github.com/jaydestro/caseflow)
+
 > **What this is.** CaseFlow is an **educational tool** for people learning
 > Azure Cosmos DB. It is a deliberately flawed sample app, seeded with common
 > Cosmos DB anti-patterns (plus a few TypeScript/Node code smells), so you can
@@ -49,6 +56,12 @@ correctness bugs. Finding and fixing them is the point.
 
 Requires Node 20+.
 
+Use your local Node.js installation, or click **Open in Dev Container** above
+to clone the repository into a VS Code dev container. The container includes
+Node.js, Azure CLI, and Bicep, installs npm dependencies, and forwards the API
+and web ports. It requires Docker and the VS Code Dev Containers extension;
+it does not start a Cosmos DB emulator or provision Azure resources.
+
 ```bash
 npm install
 cp backend/.env.example backend/.env  # then edit if you want
@@ -67,16 +80,88 @@ By default the backend connects to the **Cosmos DB Emulator** on
 `https://localhost:8081` using the well-known emulator key, so the demo works
 out of the box with a local emulator running.
 
-### Pointing at Azure Cosmos DB
+### Optional: use a live Azure Cosmos DB
 
-Edit `backend/.env`:
+Skip this section when using the emulator. A **sample Bicep template** is
+provided at [infra/cosmos-only.bicep](infra/cosmos-only.bicep) to create a live
+database without deploying the application. Supply your own Azure parameters
+using the commands below.
+It creates a Cosmos DB for NoSQL account, database, and container, disables
+account-key authentication, and grants the supplied Entra principal Cosmos DB
+Built-in Data Contributor access. It preserves the application's `/id` partition
+key.
 
+You need Azure CLI and Bicep, plus permissions to create Cosmos resources and
+Cosmos data-plane role assignments in your chosen resource group.
+
+**Optional dev container:** Open the repository in VS Code and select
+**Dev Containers: Reopen in Container**. The
+[dev container](.devcontainer/devcontainer.json) includes Node.js, Azure CLI, and
+Bicep, installs npm dependencies, and forwards ports 4000 and 5173. It does not
+create Azure resources or mount your host's Azure credentials. Run `az login`
+inside the container before using a live database.
+
+From a Bash terminal (including the dev container), replace every placeholder
+with your own values:
+
+```bash
+az login --use-device-code
+
+SUBSCRIPTION_ID="<your-subscription-id>"
+RESOURCE_GROUP="<your-resource-group>"
+LOCATION="<your-azure-region>"
+ACCOUNT_NAME="<your-globally-unique-lowercase-account-name>"
+DATABASE_NAME="caseflow"
+CONTAINER_NAME="entities"
+MAX_THROUGHPUT=1000
+
+az account set --subscription "$SUBSCRIPTION_ID"
+PRINCIPAL_ID=$(az ad signed-in-user show --query id --output tsv)
+
+az group create --name "$RESOURCE_GROUP" --location "$LOCATION"
+az deployment group create \
+  --resource-group "$RESOURCE_GROUP" \
+  --name caseflow-cosmos \
+  --template-file infra/cosmos-only.bicep \
+  --parameters \
+    location="$LOCATION" \
+    accountName="$ACCOUNT_NAME" \
+    principalId="$PRINCIPAL_ID" \
+    databaseName="$DATABASE_NAME" \
+    containerName="$CONTAINER_NAME" \
+    maxThroughput="$MAX_THROUGHPUT"
 ```
-COSMOS_ENDPOINT=https://localhost:8081
-COSMOS_KEY=<your key, or leave blank for the well-known emulator key>
+
+`PRINCIPAL_ID` is the signed-in user's Entra object ID, not an application/client
+ID. To authorize a managed identity instead, supply its principal object ID.
+The template does not create or attach managed identities.
+
+The default maximum of 1,000 RU/s uses **autoscale provisioned throughput**
+(100-1,000 RU/s), not serverless. Throughput and storage incur ongoing charges.
+Choose `MAX_THROUGHPUT` in multiples of 1,000 according to your workload.
+
+Copy `backend/.env.example` to `backend/.env` if needed. Replace its emulator
+connection settings with the following, using the endpoint returned in the
+deployment outputs and the database, container, and throughput values you chose:
+
+```dotenv
+COSMOS_ENDPOINT=https://<your-account-name>.documents.azure.com:443/
 COSMOS_DATABASE=caseflow
 COSMOS_CONTAINER=entities
+COSMOS_USE_ENTRA=true
+COSMOS_KEY=
+COSMOS_CONNECTION_STRING=
+CONTAINER_RUS=1000
 ```
+
+Do not commit `backend/.env`. Locally, leave `AZURE_CLIENT_ID` unset so
+`DefaultAzureCredential` can use your Azure CLI login. Entra role propagation
+can take several minutes. The database and container must exist before the
+backend starts; Entra data-plane roles cannot create them.
+
+Run `npm run dev`. The backend seeds an empty database on startup; the first
+seed can take several minutes against a live account. This configures
+backend-to-database authentication only, not the demo web login.
 
 ## Scripts
 
@@ -279,7 +364,6 @@ reference deploy job you can copy.
 > [!IMPORTANT]
 > GitHub OIDC tokens from a **personal-account repository** do **not** carry a
 > GitHub Enterprise `enterprise` claim. If your target tenant enforces that
-> claim (for example the Microsoft corporate tenant,
-> `72f988bf-86f1-41af-91ab-2d7cd011db47`), `azd auth login` in CI fails with
+> claim, `azd auth login` in CI fails with
 > `AADSTS7002381`. Deploy from a **personal or otherwise non-restricted** Azure
 > tenant, or just use **Option A** locally.
